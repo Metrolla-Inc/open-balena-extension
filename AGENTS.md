@@ -18,7 +18,8 @@ openBalena issues device endpoints under a single `DNS_TLD`. This project suppor
 3. **The bundled builder CLI expires.** `obcommunity/open-balena-builder` ships an old `balena-cli` that hard-expires (~365 days after the next major). The patched image swaps in a current standalone CLI and wraps it to export `HOME` + `NODE_TLS_REJECT_UNAUTHORIZED=0` (the builder spawns the CLI with a stripped env, so these MUST be in the wrapper, not the container env).
 4. **One `balena push` at a time.** Concurrent builds race on release/service creation and fail with `"application" and "service_name" must be unique`.
 5. **haproxy is the single ingress.** Validate any `haproxy.cfg` change with `haproxy -c` inside the running container (it has the certs + env) BEFORE reloading; keep a timestamped backup. The builder route needs `timeout server 3600s` (builds exceed the default 63s).
-6. **Never commit secrets.** Templatize to `${ENV}`: `TOKEN_AUTH_BUILDER_TOKEN`, `OPEN_BALENA_JWT_SECRET`, `OPEN_BALENA_S3_*`, `PGRST_JWT_SECRET`, any `*.key`/CA/`certs/`. The `.gitignore` blocks these — keep it that way.
+6. **Never commit secrets.** Templatize to `${ENV}`: `TOKEN_AUTH_BUILDER_TOKEN`, `IMAGEMAKER_TOKEN`, `OPEN_BALENA_JWT_SECRET`, `OPEN_BALENA_S3_*`, `PGRST_JWT_SECRET`, any `*.key`/CA/`certs/`. The `.gitignore` blocks these — keep it that way.
+7. **The imagemaker is sensitive.** Its images embed fleet-provisioning credentials, so it must stay authenticated (`IMAGEMAKER_TOKEN`) and/or loopback-only. Keep its `sudo` allowlist scoped — no blanket `cp`/`docker` (each is host-root); the DB read goes through `/usr/local/bin/ob-fleets`.
 
 ## Device access reality (important when "fixing a device")
 - `balena device ssh` and the dashboard terminal both ride the **VPN**. If a device's VPN is down, neither works.

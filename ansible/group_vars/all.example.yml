@@ -20,6 +20,9 @@ balena_cli_version: v22.1.2
 # Leave empty to auto-read the API's generated token; or set explicitly.
 token_auth_builder_token: ""
 
+# Imagemaker shared secret — required to use the image builder (images embed provisioning creds).
+imagemaker_token: ""            # openssl rand -hex 16
+
 # Admin dashboard secrets — GENERATE THESE (do not reuse). Keep this file vaulted.
 open_balena_jwt_secret: ""      # openssl rand -hex 16
 open_balena_s3_access_key: ""

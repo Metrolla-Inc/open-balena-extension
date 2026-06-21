@@ -27,9 +27,13 @@ small{color:#6b7689}
 <p style="margin-top:16px"><small>Flash the downloaded .img.gz with balenaEtcher. For generic-amd64 the .img.gz is a <b>flasher</b> image — boot the target from it and it installs balenaOS to the device's disk, then auto-registers into the fleet.<br><b>Jetson Orin/Xavier:</b> flash via USB recovery mode with jetson-flash (not Etcher). Jetson Nano: SD image, Etcher works.</small></p>
 </div><script>
 const $=id=>document.getElementById(id);let fleetMap={};
-async function j(u,o){const r=await fetch(u,o);if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||r.status);return r.json();}
-async function loadVersions(dt){const v=$('ver');v.innerHTML='<option>loading…</option>';try{const list=await j('/api/versions?deviceType='+encodeURIComponent(dt));v.innerHTML=list.map(x=>'<option>'+x+'</option>').join('');}catch(e){v.innerHTML='<option>error</option>';}}
-async function init(){try{const fl=await j('/api/fleets');$('fleet').innerHTML=fl.map(f=>'<option value="'+f.slug+'">'+f.slug+'</option>').join('');fl.forEach(f=>fleetMap[f.slug]=f.deviceType);onFleet();}catch(e){$('status').innerHTML='<span class=err>Failed to load fleets: '+e.message+'</span>';}}
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// optional shared secret: open the UI as /?token=XXX (matches IMAGEMAKER_TOKEN) and we forward it.
+const TOKEN=new URLSearchParams(location.search).get('token')||'';
+const tok=u=>u+(TOKEN?(u.includes('?')?'&':'?')+'token='+encodeURIComponent(TOKEN):'');
+async function j(u,o){o=o||{};if(TOKEN)o.headers=Object.assign({'x-imagemaker-token':TOKEN},o.headers||{});const r=await fetch(u,o);if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||r.status);return r.json();}
+async function loadVersions(dt){const v=$('ver');v.innerHTML='<option>loading…</option>';try{const list=await j('/api/versions?deviceType='+encodeURIComponent(dt));v.innerHTML=list.map(x=>'<option>'+esc(x)+'</option>').join('');}catch(e){v.innerHTML='<option>error</option>';}}
+async function init(){try{const fl=await j('/api/fleets');$('fleet').innerHTML=fl.map(f=>'<option value="'+esc(f.slug)+'">'+esc(f.slug)+'</option>').join('');fl.forEach(f=>fleetMap[f.slug]=f.deviceType);onFleet();}catch(e){$('status').innerHTML='<span class=err>Failed to load fleets: '+esc(e.message)+'</span>';}}
 function onFleet(){const dt=fleetMap[$('fleet').value]||'';$('dt').value=dt;loadVersions(dt);}
 $('fleet').onchange=onFleet;
 $('net').onchange=()=>$('wifi').classList.toggle('hide',$('net').value!=='wifi');
@@ -37,9 +41,9 @@ $('go').onclick=async()=>{$('go').disabled=true;$('dl').classList.add('hide');$(
  const body={fleet:$('fleet').value,deviceType:$('dt').value,version:$('ver').value,network:$('net').value,ssid:$('ssid').value,key:$('key').value,connectivity:$('conn').value};
  try{const {id}=await j('/api/build',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const t=setInterval(async()=>{try{const s=await j('/api/status/'+id);$('status').textContent=(s.status==='building'?'⏳ ':'')+ (s.message||s.status);
-   if(s.status==='done'){clearInterval(t);$('go').disabled=false;$('status').textContent='✅ Image ready: '+s.name;const a=$('dl');a.href='/download/'+id;a.textContent='⬇ Download '+s.name;a.classList.remove('hide');}
-   if(s.status==='error'){clearInterval(t);$('go').disabled=false;$('status').innerHTML='<span class=err>❌ '+(s.error||'build failed')+'</span>';}
-  }catch(e){clearInterval(t);$('go').disabled=false;$('status').innerHTML='<span class=err>'+e.message+'</span>';}},3000);
- }catch(e){$('go').disabled=false;$('status').innerHTML='<span class=err>'+e.message+'</span>';}};
+   if(s.status==='done'){clearInterval(t);$('go').disabled=false;$('status').textContent='✅ Image ready: '+s.name;const a=$('dl');a.href=tok('/download/'+id);a.textContent='⬇ Download '+s.name;a.classList.remove('hide');}
+   if(s.status==='error'){clearInterval(t);$('go').disabled=false;$('status').innerHTML='<span class=err>❌ '+esc(s.error||'build failed')+'</span>';}
+  }catch(e){clearInterval(t);$('go').disabled=false;$('status').innerHTML='<span class=err>'+esc(e.message)+'</span>';}},3000);
+ }catch(e){$('go').disabled=false;$('status').innerHTML='<span class=err>'+esc(e.message)+'</span>';}};
 init();
 </script></body></html>

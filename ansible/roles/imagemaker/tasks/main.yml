@@ -23,11 +23,23 @@
     - { f: build-image.sh, m: "0755" }
     - { f: prebuild.sh, m: "0755" }
 
-- name: Passwordless sudo for imagemaker ops
+# Root-owned helper for the one fixed DB query, so sudo can be scoped to it instead of `docker`.
+- name: Install ob-fleets root helper
+  ansible.builtin.copy:
+    src: "{{ repo_root }}/components/imagemaker/ob-fleets.sh"
+    dest: /usr/local/bin/ob-fleets
+    owner: root
+    group: root
+    mode: "0755"
+
+# Scoped to exactly what a build needs. Note: NO /usr/bin/cp (unrestricted root overwrite) and
+# NO /usr/bin/docker (host root); the DB read goes through /usr/local/bin/ob-fleets, and the
+# boot partition is mounted uid=<service_user> so the config copy runs unprivileged.
+- name: Passwordless sudo for imagemaker ops (scoped)
   ansible.builtin.copy:
     dest: /etc/sudoers.d/imagemaker
     mode: "0440"
-    content: "{{ service_user }} ALL=(root) NOPASSWD: /usr/sbin/losetup, /usr/bin/mount, /usr/bin/umount, /usr/sbin/partprobe, /usr/sbin/blkid, /usr/bin/cp, /usr/bin/docker\n"
+    content: "{{ service_user }} ALL=(root) NOPASSWD: /usr/sbin/losetup, /usr/bin/mount, /usr/bin/umount, /usr/sbin/partprobe, /usr/sbin/blkid, /usr/local/bin/ob-fleets\n"
     validate: visudo -cf %s
 
 - name: Install imagemaker.service
