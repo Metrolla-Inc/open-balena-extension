@@ -20,11 +20,16 @@ Plus **[Ansible playbooks](ansible/)** to deploy core + all extensions from scra
 ```bash
 git clone https://github.com/<you>/open-balena-extension
 cd open-balena-extension
-cp .env.example .env          # set DNS_TLD, PUBLIC_TLD, and generate secrets
-# then either:
-cd ansible && ansible-playbook -i inventory.ini site.yml      # full deploy
-# or add a single component to an existing openBalena (see each component's README)
+
+DNS_TLD=ob.example.com PUBLIC_TLD=ob.example.com make bootstrap   # scaffold .env + generate secrets
+$EDITOR .env                  # confirm DNS_TLD / PUBLIC_TLD; point *.${PUBLIC_TLD} at the host
+make doctor                   # check tooling, DNS wildcard, (later) live endpoints
+make deploy                   # full Ansible deploy of core + all extensions
 ```
+
+`make` with no target lists everything (`bootstrap`, `doctor`, `deploy`, `deploy-builder`, …).
+Prefer to do it by hand, or add a single component to an existing openBalena? Each
+component's README has standalone steps, and `make bootstrap` / `make doctor` still apply.
 
 ## The core idea: internal vs public TLD
 
@@ -36,4 +41,4 @@ This repo ships [`AGENTS.md`](AGENTS.md) (and [`CLAUDE.md`](CLAUDE.md)) describi
 
 ## License
 
-[Apache-2.0](LICENSE). Not affiliated with or endorsed by Balena.
+[MIT](LICENSE). Not affiliated with or endorsed by Balena.

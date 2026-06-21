@@ -8,8 +8,22 @@ Two paths: **Ansible** (recommended) or **manual**. Either way, decide your TLDs
 - DNS: `*.${PUBLIC_TLD}` → host IP (covers `api.`, `vpn.`, `cloudlink.`, `registry2.`, `delta.`, `builder.`).
 - Ports 80/443 reachable.
 
+> `make doctor` checks all of the above (tooling, the DNS wildcard, and — once core is up —
+> the live endpoints). Run it before and after deploying.
+
+## Fastest path (helpers)
+```bash
+DNS_TLD=ob.example.com PUBLIC_TLD=ob.example.com make bootstrap   # scaffold .env + secrets
+make doctor                                                       # preflight
+make deploy                                                       # core + extensions
+```
+`make bootstrap` copies `.env.example`, generates the secrets (and sets `PGRST_JWT_SECRET ==
+OPEN_BALENA_JWT_SECRET` as the admin stack requires), and reads the builder token from a running
+core if it finds one. It's safe to re-run — it won't clobber values you've already set.
+
 ## Ansible (recommended)
-See [../ansible/README.md](../ansible/README.md):
+`make ansible-config` scaffolds `ansible/group_vars/all.yml` too (mirroring the `.env`
+secrets), or do it by hand — see [../ansible/README.md](../ansible/README.md):
 ```bash
 cd ansible
 cp inventory.example.ini inventory.ini
