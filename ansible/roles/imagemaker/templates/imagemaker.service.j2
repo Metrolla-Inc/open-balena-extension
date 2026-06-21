@@ -11,6 +11,7 @@ WorkingDirectory={{ install_root }}/imagemaker
 Environment=SERVICE_HOME=/home/{{ service_user }}
 Environment=DNS_TLD={{ dns_tld }}
 Environment=PUBLIC_TLD={{ public_tld }}
+Environment=BALENARC_BALENA_URL={{ public_tld }}
 Environment=OPENBALENA_ROOT_CA=/usr/local/share/ca-certificates/openbalena-root-ca.crt
 Environment=IMAGEMAKER_DIR={{ install_root }}/imagemaker
 # Shared secret required to use the service (images embed provisioning creds). Open the UI as

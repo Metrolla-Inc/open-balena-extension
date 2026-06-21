@@ -14,6 +14,9 @@ WorkingDirectory=/opt/openbalena/imagemaker
 Environment=SERVICE_HOME=/home/balena
 Environment=DNS_TLD=example.local
 Environment=PUBLIC_TLD=ob.example.com
+# REQUIRED: which backend `balena config generate` targets. Without it the CLI uses its
+# stored default (often balena-cloud.com) and config generate fails with "fetch failed".
+Environment=BALENARC_BALENA_URL=ob.example.com
 Environment=OPENBALENA_ROOT_CA=/usr/local/share/ca-certificates/openbalena-root-ca.crt
 Environment=IMAGEMAKER_DIR=/opt/openbalena/imagemaker
 # Shared secret required to use the service — images embed fleet-provisioning creds, so don't

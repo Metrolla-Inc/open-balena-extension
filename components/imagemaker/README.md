@@ -25,6 +25,11 @@ A small, bespoke web service that builds **ready-to-flash, fleet-preconfigured b
   `blkid`, and `/usr/local/bin/ob-fleets` only. Note this list deliberately excludes `cp` and
   `docker` (each is effectively host-root) — see Security below.
 - `pigz` installed.
+- **`BALENARC_BALENA_URL` set** to your backend hostname (the systemd unit sets it). Without it,
+  `balena config generate` uses the CLI's stored default and fails with `fetch failed`.
+- **Split-horizon `/etc/hosts`** on the host if you front the instance with a relay/proxy — point the
+  openBalena hostnames at the local haproxy so config generate doesn't hairpin out and back. See
+  [../../docs/public-ingress.md](../../docs/public-ingress.md).
 
 ## Install (manual)
 ```bash

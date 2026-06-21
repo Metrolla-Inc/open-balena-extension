@@ -56,3 +56,20 @@ workloads on `open-balena_default`):
 curl -k -o /dev/null -w '%{http_code}\n' https://builder.${PUBLIC_TLD}/   # 404 from Express = route alive
 balena push <fleet> --registry-secrets ./docker-credentials.yml          # streams a remote build
 ```
+
+## Registry → S3 internal TLS (push hangs in `running`)
+If a build reaches **"Creating release / Pushing images"** but the release stays `running` forever,
+check the registry logs for:
+```
+s3aws: ... Put "https://s3.<TLD>/...": tls: failed to verify certificate: x509: certificate signed by unknown authority
+```
+The registry's Go S3 client doesn't trust the self-signed internal CA (common after a PKI regen).
+Fix by adding to the `registry` service env:
+```yaml
+services:
+  registry:
+    environment:
+      REGISTRY_STORAGE_S3_SKIPVERIFY: "true"   # internal registry→s3 hop only
+```
+(Or install the CA into the registry's system trust store.) For offloading blobs to a fast edge
+instead of local S3, see [../../docs/registry-edge-cache.md](../../docs/registry-edge-cache.md).

@@ -20,6 +20,12 @@ openBalena issues device endpoints under a single `DNS_TLD`. This project suppor
 5. **haproxy is the single ingress.** Validate any `haproxy.cfg` change with `haproxy -c` inside the running container (it has the certs + env) BEFORE reloading; keep a timestamped backup. The builder route needs `timeout server 3600s` (builds exceed the default 63s).
 6. **Never commit secrets.** Templatize to `${ENV}`: `TOKEN_AUTH_BUILDER_TOKEN`, `IMAGEMAKER_TOKEN`, `OPEN_BALENA_JWT_SECRET`, `OPEN_BALENA_S3_*`, `PGRST_JWT_SECRET`, any `*.key`/CA/`certs/`. The `.gitignore` blocks these — keep it that way.
 7. **The imagemaker is sensitive.** Its images embed fleet-provisioning credentials, so it must stay authenticated (`IMAGEMAKER_TOKEN`) and/or loopback-only. Keep its `sudo` allowlist scoped — no blanket `cp`/`docker` (each is host-root); the DB read goes through `/usr/local/bin/ob-fleets`.
+8. **Public ingress must carry raw TCP, not just HTTP.** The device VPN is openVPN-over-TCP on 443. An HTTP-only front (Cloudflare Tunnel, nginx http) → device shows online but VPN never connects. Use a relay VM + WireGuard + iptables raw L4 DNAT. See [docs/public-ingress.md](docs/public-ingress.md).
+9. **Registry → S3 over self-signed TLS needs trust or skip.** After a PKI regen the registry's Go S3 client won't trust the internal CA → blob push fails `x509: certificate signed by unknown authority`, release hangs in `running`. Fix: `REGISTRY_STORAGE_S3_SKIPVERIFY=true` (internal hop) or install the CA into the registry's system trust.
+10. **Host-local tools need split-horizon DNS.** Tools on the host (imagemaker `config generate`) resolving `api.${PUBLIC_TLD}` hairpin out to the relay and back — flaky. Add `/etc/hosts` → local haproxy. Also: `build-image.sh` must run with `BALENARC_BALENA_URL` set (it relies on the CLI default otherwise).
+11. **PostgREST needs DB roles.** A wiped/rebuilt DB loses the dcnext admin roles (`anon`, etc.); PostgREST returns `role "anon" does not exist` and its proxy `ECONNRESET`s. Recreate the roles + grants.
+
+For field-scale bandwidth, offload registry blobs to cloud object storage (R2) with blob redirect — see [docs/registry-edge-cache.md](docs/registry-edge-cache.md).
 
 ## Device access reality (important when "fixing a device")
 - `balena device ssh` and the dashboard terminal both ride the **VPN**. If a device's VPN is down, neither works.

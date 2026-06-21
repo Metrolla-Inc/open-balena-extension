@@ -51,8 +51,9 @@ you don't have to learn it the hard way.
 | **[Admin dashboard](components/admin/)** | Web UI / device terminal (the community [open-balena-ui](https://github.com/ob-community/open-balena-ui) stack) | third-party |
 
 Plus **[Ansible playbooks](ansible/)** to deploy core + all extensions from scratch, helper
-scripts (`make bootstrap` / `make doctor`), and **[docs](docs/)** including an
-[architecture map](docs/architecture.md) and the [DNS-split explainer](docs/dns-tld-split.md).
+scripts (`make bootstrap` / `make doctor`), and **[docs](docs/)**:
+[architecture map](docs/architecture.md) · [DNS-split explainer](docs/dns-tld-split.md) ·
+[public ingress & Cloudflare](docs/public-ingress.md) · [registry edge cache (R2)](docs/registry-edge-cache.md).
 
 ## How it fits together
 
@@ -139,13 +140,13 @@ Full prose walkthrough, the **manual (non-Ansible) path**, and a backup checklis
 
 ## The core idea: internal vs public TLD
 
-openBalena issues every device endpoint (`api.`, `vpn/cloudlink.`, `registry2.`, `delta.`) under
-one `DNS_TLD`. Many self-hosters run an **internal** `DNS_TLD` (e.g. `example.local`) but reach the
-instance **publicly** via a reverse proxy (e.g. `ob.example.com`). Remote devices can't resolve
-`*.example.local`, so their endpoints must be rewritten to the public name. The imagemaker does
-this automatically (its `__internet` image variant); the builder and haproxy are configured around
-the same split. **[Read the full explainer →](docs/dns-tld-split.md)** — getting this wrong is the
-#1 cause of "device online but VPN won't connect."
+openBalena issues every device endpoint (`api.`, `vpn/cloudlink.`, `registry2.`, `delta.`) under one `DNS_TLD`. You can run an **internal** `DNS_TLD` (e.g. `example.local`) reached **publicly** via a proxy (e.g. `ob.example.com`) and rewrite device endpoints to the public name (the imagemaker's `__internet` variant) — but for **devices in the wild, the simplest and most robust choice is to deploy with `DNS_TLD` set to your public hostname** so the API advertises public endpoints natively. **[Read the full explainer →](docs/dns-tld-split.md)** — getting this wrong is the #1 cause of "device online but VPN won't connect."
+
+## Deploying for field devices (read these)
+If devices live on the internet rather than your LAN, three things matter — all learned the hard way:
+1. **Public ingress must carry raw TCP, not just HTTP.** The VPN is openVPN-over-TCP; an HTTP-only front (Cloudflare Tunnel, nginx `http`) makes devices show *online* but never connect the VPN. Use a tiny relay VM + WireGuard + raw L4 forward. → **[public-ingress.md](docs/public-ingress.md)**
+2. **Use Cloudflare for DNS + R2, not the Tunnel.** Wildcard DNS to the relay; R2 (free egress) as the registry's blob store so devices pull from the edge instead of your uplink. → **[registry-edge-cache.md](docs/registry-edge-cache.md)**
+3. **Deploy `DNS_TLD` = your public hostname.** Avoids the `__lan`/`__internet` split entirely.
 
 ## Security
 
