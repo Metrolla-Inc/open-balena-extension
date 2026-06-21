@@ -4,7 +4,7 @@
 
 INVENTORY ?= ansible/inventory.ini
 
-.PHONY: help bootstrap ansible-config doctor deploy deploy-% secret-scan
+.PHONY: help bootstrap ansible-config doctor deploy deploy-% secret-scan lint
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_%-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -24,6 +24,13 @@ deploy: ## Full Ansible deploy (core + all extensions)
 
 deploy-%: ## Deploy one component, e.g. `make deploy-builder`
 	cd ansible && ansible-playbook -i $(notdir $(INVENTORY)) site.yml --tags $*
+
+lint: ## Lint shell + node + scan for secrets (what CI runs)
+	@for f in $$(git ls-files '*.sh'); do bash -n "$$f" && echo "bash -n  $$f"; done
+	@node --check components/imagemaker/server.js && echo "node --check  components/imagemaker/server.js"
+	@if command -v shellcheck >/dev/null; then shellcheck -S error $$(git ls-files '*.sh') && echo "shellcheck  ok"; \
+	  else echo "shellcheck not installed — skipped (CI runs it)"; fi
+	@$(MAKE) --no-print-directory secret-scan
 
 secret-scan: ## Fail if a real secret looks committed (placeholders/examples ignored)
 	@hits=$$(git grep --untracked -nIE '(BEGIN [A-Z ]*PRIVATE KEY|[0-9a-f]{24,})' \
