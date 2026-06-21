@@ -16,6 +16,10 @@ Environment=DNS_TLD=example.local
 Environment=PUBLIC_TLD=ob.example.com
 Environment=OPENBALENA_ROOT_CA=/usr/local/share/ca-certificates/openbalena-root-ca.crt
 Environment=IMAGEMAKER_DIR=/opt/openbalena/imagemaker
+# Shared secret required to use the service — images embed fleet-provisioning creds, so don't
+# expose it unauthenticated. Open the UI as http://127.0.0.1:8090/?token=<value>. Binding to a
+# non-loopback HOST without a token is refused (set IMAGEMAKER_ALLOW_NO_AUTH=1 to override).
+Environment=IMAGEMAKER_TOKEN=
 # Node from the balena CLI standalone bundle, or any Node >= 18.
 ExecStart=/usr/bin/node /opt/openbalena/imagemaker/server.js
 Restart=on-failure

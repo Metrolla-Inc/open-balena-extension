@@ -13,6 +13,9 @@ Environment=DNS_TLD={{ dns_tld }}
 Environment=PUBLIC_TLD={{ public_tld }}
 Environment=OPENBALENA_ROOT_CA=/usr/local/share/ca-certificates/openbalena-root-ca.crt
 Environment=IMAGEMAKER_DIR={{ install_root }}/imagemaker
+# Shared secret required to use the service (images embed provisioning creds). Open the UI as
+# http://127.0.0.1:8090/?token=<value>. Leave blank only for a pure loopback/tunnel-only setup.
+Environment=IMAGEMAKER_TOKEN={{ imagemaker_token | default('') }}
 ExecStart=/usr/bin/node {{ install_root }}/imagemaker/server.js
 Restart=on-failure
 RestartSec=3

@@ -21,7 +21,9 @@ A small, bespoke web service that builds **ready-to-flash, fleet-preconfigured b
 ## Requirements
 - A balena CLI on the host, **logged into your openBalena backend** in the service user's `~/.balena`.
 - The openBalena **root CA** at `OPENBALENA_ROOT_CA` (so the CLI trusts your self-signed certs).
-- Passwordless `sudo` for the service user (`losetup`, `mount`, `partprobe`, `blkid`, `docker exec`).
+- **Scoped** passwordless `sudo` for the service user: `losetup`, `mount`, `umount`, `partprobe`,
+  `blkid`, and `/usr/local/bin/ob-fleets` only. Note this list deliberately excludes `cp` and
+  `docker` (each is effectively host-root) — see Security below.
 - `pigz` installed.
 
 ## Install (manual)
@@ -29,15 +31,27 @@ A small, bespoke web service that builds **ready-to-flash, fleet-preconfigured b
 sudo mkdir -p /opt/openbalena/imagemaker /var/lib/imagemaker/{cache,builds,dist}
 sudo cp server.js index.html build-image.sh prebuild.sh /opt/openbalena/imagemaker/
 sudo chmod +x /opt/openbalena/imagemaker/*.sh
+sudo install -o root -g root -m755 ob-fleets.sh /usr/local/bin/ob-fleets   # scoped DB-read helper
 sudo cp imagemaker.service /etc/systemd/system/
-# edit the Environment= lines (DNS_TLD, PUBLIC_TLD, user, CA path)
+# edit the Environment= lines (DNS_TLD, PUBLIC_TLD, user, CA path, IMAGEMAKER_TOKEN)
+echo '<user> ALL=(root) NOPASSWD: /usr/sbin/losetup, /usr/bin/mount, /usr/bin/umount, /usr/sbin/partprobe, /usr/sbin/blkid, /usr/local/bin/ob-fleets' | sudo tee /etc/sudoers.d/imagemaker
 sudo systemctl daemon-reload && sudo systemctl enable --now imagemaker
 ```
 Or use the Ansible role: [`ansible/roles/imagemaker`](../../ansible/roles/imagemaker).
 
-## Access
-The service binds to `127.0.0.1:8090` on purpose. Reach it via SSH tunnel
-(`ssh -L 8090:127.0.0.1:8090 user@host`) or put it behind your reverse proxy with auth.
+## Access & security
+A built image embeds `config.json` with **fleet-provisioning credentials**, so the service must
+not be reachable unauthenticated.
+- **Auth.** Set `IMAGEMAKER_TOKEN` (a shared secret) and open the UI as
+  `http://127.0.0.1:8090/?token=<value>`; the API and download links carry it automatically
+  (header `x-imagemaker-token` / `?token=`). Binding to a non-loopback `HOST` **without** a token
+  is refused unless you set `IMAGEMAKER_ALLOW_NO_AUTH=1`.
+- **Network.** It still binds `127.0.0.1:8090` by default — reach it via SSH tunnel
+  (`ssh -L 8090:127.0.0.1:8090 user@host`) or a reverse proxy. The token is defence-in-depth on top.
+- **Least privilege.** The DB read runs through `ob-fleets` (one fixed read-only query) instead of
+  `sudo docker`; the boot partition is mounted `uid=<service_user>` so the config copy needs no
+  `sudo cp`. The Wi-Fi PSK is passed to `build-image.sh` via the environment, never argv (so it
+  doesn't leak through `ps`).
 
 ## Variants
 - **`internet`** — public endpoints; use for any device not on the LAN.

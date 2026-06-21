@@ -72,6 +72,7 @@ scaffold_env() {
   [ -z "$(get_kv "$out" PGRST_JWT_SECRET)" ] && { set_kv "$out" PGRST_JWT_SECRET "$jwt"; echo "[bootstrap]   set PGRST_JWT_SECRET = OPEN_BALENA_JWT_SECRET"; }
   [ -z "$(get_kv "$out" OPEN_BALENA_S3_ACCESS_KEY)" ] && { set_kv "$out" OPEN_BALENA_S3_ACCESS_KEY "$(gen 12)"; echo "[bootstrap]   generated OPEN_BALENA_S3_ACCESS_KEY"; }
   [ -z "$(get_kv "$out" OPEN_BALENA_S3_SECRET_KEY)" ] && { set_kv "$out" OPEN_BALENA_S3_SECRET_KEY "$(gen 20)"; echo "[bootstrap]   generated OPEN_BALENA_S3_SECRET_KEY"; }
+  [ -z "$(get_kv "$out" IMAGEMAKER_TOKEN)" ] && { set_kv "$out" IMAGEMAKER_TOKEN "$(gen 16)"; echo "[bootstrap]   generated IMAGEMAKER_TOKEN (open the imagemaker UI as /?token=...)"; }
 
   # Builder token — read from a running core if we can; otherwise leave blank (Ansible can auto-read it too)
   if [ -z "$(get_kv "$out" TOKEN_AUTH_BUILDER_TOKEN)" ]; then
@@ -98,6 +99,7 @@ scaffold_ansible() {
     -e "s|^pgrst_jwt_secret:.*|pgrst_jwt_secret: \"$jwt\"|" \
     -e "s|^open_balena_s3_access_key:.*|open_balena_s3_access_key: \"$(get_kv "$ROOT/.env" OPEN_BALENA_S3_ACCESS_KEY)\"|" \
     -e "s|^open_balena_s3_secret_key:.*|open_balena_s3_secret_key: \"$(get_kv "$ROOT/.env" OPEN_BALENA_S3_SECRET_KEY)\"|" \
+    -e "s|^imagemaker_token:.*|imagemaker_token: \"$(get_kv "$ROOT/.env" IMAGEMAKER_TOKEN)\"|" \
     "$out" && rm -f "$out.bak"
   [ -n "${DNS_TLD:-}" ]    && sed -i.bak "s|^dns_tld:.*|dns_tld: ${DNS_TLD}|" "$out" && rm -f "$out.bak"
   [ -n "${PUBLIC_TLD:-}" ] && sed -i.bak "s|^public_tld:.*|public_tld: ${PUBLIC_TLD}|" "$out" && rm -f "$out.bak"

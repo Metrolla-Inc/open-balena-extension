@@ -9,7 +9,9 @@
 # Required env (see .env.example): DNS_TLD, PUBLIC_TLD
 set -euo pipefail
 DT="${1:?device type}"; VER="${2:?os version}"; FLEET="${3:?fleet}"; NET="${4:-ethernet}"
-SSID="${5:-}"; KEY="${6:-}"; CONN="${7:-lan}"; OUT="${8:?output path}"; LOG="${9:-/dev/stderr}"
+# Wi-Fi creds prefer the env (so the PSK never lands in argv / `ps`); positional args kept as a fallback.
+SSID="${IMAGEMAKER_WIFI_SSID:-${5:-}}"; KEY="${IMAGEMAKER_WIFI_KEY:-${6:-}}"
+CONN="${7:-lan}"; OUT="${8:?output path}"; LOG="${9:-/dev/stderr}"
 
 : "${DNS_TLD:?set DNS_TLD (internal openBalena TLD, e.g. example.local)}"
 : "${PUBLIC_TLD:?set PUBLIC_TLD (public hostname base, e.g. ob.example.com)}"
@@ -102,8 +104,10 @@ if [ -z "$BOOT" ]; then            # fallback: first vfat partition
 fi
 [ -n "$BOOT" ] || { echo "[build] ERROR no vfat boot partition"; exit 1; }
 mkdir -p "$WORK/mnt"
-sudo -n mount "$BOOT" "$WORK/mnt"
-sudo -n cp "$WORK/config.json" "$WORK/mnt/config.json"
+# Mount the FAT boot partition owned by us (uid/gid) so the copy doesn't need `sudo cp`
+# (unrestricted `sudo cp` is a root-overwrite primitive — kept out of the sudoers allowlist).
+sudo -n mount -o "uid=$(id -u),gid=$(id -g)" "$BOOT" "$WORK/mnt"
+cp "$WORK/config.json" "$WORK/mnt/config.json"
 sync; sudo -n umount "$WORK/mnt"
 sudo -n losetup -d "$LOOP"; LOOP=""
 

@@ -33,6 +33,20 @@ docker compose restart haproxy     # after adding the builder. route to haproxy.
 ```
 Or use the Ansible role: [`ansible/roles/builder`](../../ansible/roles/builder).
 
+## Security notes (inherent to the community builder — mitigate at the network layer)
+These follow from the upstream builder's design; don't "fix" them blindly, as the build/push path
+depends on them. Mitigate by keeping the openBalena network trusted (don't co-locate untrusted
+workloads on `open-balena_default`):
+- **`builder-dind` exposes a plaintext, unauthenticated Docker API on `tcp://0.0.0.0:2375` and is
+  `privileged`.** Anything that can reach that port gets root on the host. It is **not** published
+  to host ports (only on the compose network) — keep it that way; never map `2375` to the host, and
+  treat every container on `open-balena_default` as trusted. The community builder CLI speaks only
+  plaintext, so TLS isn't an option here.
+- **`NODE_TLS_REJECT_UNAUTHORIZED=0`** disables TLS verification for the self-signed backend. It's
+  scoped to the builder + its CLI wrapper. The cleaner alternative (trust the CA via
+  `NODE_EXTRA_CA_CERTS`, as the imagemaker does) needs the CA mounted into the builder image and
+  build-testing before flipping — left as a follow-up so a wrong move doesn't break every build.
+
 ## Operating rules
 - **One `balena push` at a time.** Concurrent builds race on release/service creation and fail with `"application" and "service_name" must be unique`.
 - **Rebuild the image when the CLI expires** (~150 days for v22.x): bump `BALENA_CLI_VERSION`, `docker build`, `docker compose up -d builder`.
