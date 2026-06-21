@@ -1,0 +1,37 @@
+---
+# Deploy upstream open-balena core (unmodified).
+- name: Clone open-balena
+  ansible.builtin.git:
+    repo: "{{ openbalena_repo }}"
+    dest: "{{ install_root }}/open-balena"
+    version: "{{ openbalena_version }}"
+    update: false          # don't clobber a running deployment on re-run
+  register: ob_clone
+
+- name: Write core .env
+  ansible.builtin.copy:
+    dest: "{{ install_root }}/open-balena/.env"
+    mode: "0640"
+    content: |
+      DNS_TLD={{ dns_tld }}
+      ORG_UNIT=openBalena
+      SUPERUSER_EMAIL={{ superuser_email }}
+      PRODUCTION_MODE={{ production_mode }}
+      VERBOSE=false
+      BALENARC_NO_ANALYTICS=1
+  notify: core up
+
+- name: Bring core up (first run)
+  ansible.builtin.command:
+    cmd: make up
+    chdir: "{{ install_root }}/open-balena"
+  when: ob_clone.changed
+  changed_when: true
+
+- name: Install the generated root CA into the host trust store
+  ansible.builtin.shell: >
+    docker compose -f {{ install_root }}/open-balena/docker-compose.yml exec -T balena-ca
+    cat /certs/ca-bundle.{{ dns_tld }}.pem > /usr/local/share/ca-certificates/openbalena-root-ca.crt
+    && update-ca-certificates
+  args: { creates: /usr/local/share/ca-certificates/openbalena-root-ca.crt }
+  ignore_errors: true       # path varies by version; document if it differs

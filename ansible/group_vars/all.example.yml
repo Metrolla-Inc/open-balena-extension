@@ -1,0 +1,32 @@
+# Copy to all.yml and fill in. Recommended: `ansible-vault encrypt group_vars/all.yml`.
+
+# TLDs (see docs/dns-tld-split.md). For a single public TLD, set them equal.
+dns_tld: example.local
+public_tld: ob.example.com
+dashboard_host: balena.example.com
+
+# Paths / user on the host
+install_root: /opt/openbalena
+service_user: balena
+
+# openBalena core
+openbalena_repo: https://github.com/balena-io/open-balena.git
+openbalena_version: v4.1.752
+superuser_email: admin@example.com
+production_mode: "true"
+
+# Builder
+balena_cli_version: v22.1.2
+# Leave empty to auto-read the API's generated token; or set explicitly.
+token_auth_builder_token: ""
+
+# Admin dashboard secrets — GENERATE THESE (do not reuse). Keep this file vaulted.
+open_balena_jwt_secret: ""      # openssl rand -hex 16
+open_balena_s3_access_key: ""
+open_balena_s3_secret_key: ""
+pgrst_jwt_secret: ""            # same value as open_balena_jwt_secret in the dcnext stack
+
+# Which components to deploy
+deploy_admin: true
+deploy_delta: true
+deploy_imagemaker: true

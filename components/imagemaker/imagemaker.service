@@ -1,0 +1,25 @@
+[Unit]
+Description=openBalena Image Maker
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Set to your deploy user (must have passwordless sudo for losetup/mount/docker exec,
+# and a balena CLI logged into your openBalena backend in its HOME/.balena).
+User=balena
+Group=balena
+WorkingDirectory=/opt/openbalena/imagemaker
+# Required: point the rewrite at your TLDs and the CLI at your CA.
+Environment=SERVICE_HOME=/home/balena
+Environment=DNS_TLD=example.local
+Environment=PUBLIC_TLD=ob.example.com
+Environment=OPENBALENA_ROOT_CA=/usr/local/share/ca-certificates/openbalena-root-ca.crt
+Environment=IMAGEMAKER_DIR=/opt/openbalena/imagemaker
+# Node from the balena CLI standalone bundle, or any Node >= 18.
+ExecStart=/usr/bin/node /opt/openbalena/imagemaker/server.js
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

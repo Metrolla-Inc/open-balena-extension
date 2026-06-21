@@ -1,0 +1,24 @@
+# open-balena-delta — efficient delta image updates. Own compose project (openbalena-delta)
+# on the shared network. Required env: DNS_TLD, TOKEN_AUTH_BUILDER_TOKEN (must match the API).
+services:
+  delta:
+    image: open-balena-delta:local
+    privileged: true
+    restart: unless-stopped
+    environment:
+      BALENA_TLD: ${DNS_TLD}
+      REGISTRY_HOST: registry2.${DNS_TLD}
+      TOKEN_AUTH_BUILDER_TOKEN: "${TOKEN_AUTH_BUILDER_TOKEN}"
+      JWT_ALGO: ES256
+    volumes:
+      - delta-engine:/var/lib/balena-engine
+      - delta-rsync:/delta-rsync
+    networks:
+      open-balena_default:
+        aliases: [delta]
+networks:
+  open-balena_default:
+    external: true
+volumes:
+  delta-engine:
+  delta-rsync:

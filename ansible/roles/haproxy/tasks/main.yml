@@ -1,0 +1,40 @@
+---
+# Install the custom haproxy.cfg and reload, validating first.
+- name: Ensure haproxy config dir
+  ansible.builtin.file:
+    path: "{{ install_root }}/haproxy"
+    state: directory
+    mode: "0755"
+
+- name: Back up existing haproxy.cfg
+  ansible.builtin.copy:
+    src: "{{ install_root }}/haproxy/haproxy.cfg"
+    dest: "{{ install_root }}/haproxy/haproxy.cfg.bak-{{ ansible_date_time.iso8601_basic_short }}"
+    remote_src: true
+  ignore_errors: true
+
+- name: Install custom haproxy.cfg
+  ansible.builtin.copy:
+    src: "{{ repo_root }}/components/haproxy/haproxy.cfg"
+    dest: "{{ install_root }}/haproxy/haproxy.cfg"
+    mode: "0644"
+  register: cfg
+
+- name: Validate new config inside the running haproxy (no reload)
+  ansible.builtin.shell: |
+    docker exec open-balena-haproxy-1 sh -c '
+      for p in $(ls /proc | grep -E "^[0-9]+$"); do
+        grep -qaE "CERT_CHAIN_PATH=" /proc/$p/environ 2>/dev/null && {
+          eval "$(tr "\0" "\n" </proc/$p/environ | grep -E "^(LOGLEVEL|CERT_CHAIN_PATH|BALENA_DEVICE_UUID)=" | sed -E "s/^/export /")"; break; }; done
+      haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg'
+  register: hapcheck
+  changed_when: false
+  failed_when: hapcheck.rc != 0
+  when: cfg.changed
+
+- name: Reload haproxy
+  community.docker.docker_compose_v2:
+    project_src: "{{ install_root }}/open-balena"
+    services: [haproxy]
+    state: restarted
+  when: cfg.changed

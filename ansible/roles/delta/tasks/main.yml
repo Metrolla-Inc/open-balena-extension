@@ -1,0 +1,26 @@
+---
+- name: Delta dir
+  ansible.builtin.file:
+    path: "{{ install_root }}/delta"
+    state: directory
+    mode: "0755"
+
+- name: Copy delta compose
+  ansible.builtin.copy:
+    src: "{{ repo_root }}/components/delta/docker-compose.yml"
+    dest: "{{ install_root }}/delta/docker-compose.yml"
+    mode: "0644"
+
+- name: Write delta env
+  ansible.builtin.copy:
+    dest: "{{ install_root }}/delta/.env"
+    mode: "0600"
+    content: |
+      DNS_TLD={{ dns_tld }}
+      TOKEN_AUTH_BUILDER_TOKEN={{ _builder_token | default(token_auth_builder_token) }}
+
+- name: Bring up delta
+  community.docker.docker_compose_v2:
+    project_src: "{{ install_root }}/delta"
+    env_files: ["{{ install_root }}/delta/.env"]
+    state: present

@@ -1,0 +1,44 @@
+# Managed by Ansible (builder role). ${VARS} are interpolated by docker compose from .builder.env.
+services:
+  haproxy:
+    volumes:
+      - {{ install_root }}/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+
+  haproxy-sidecar:
+    environment:
+      ALIASES: api,ca,cloudlink,db,delta,logs,redis,registry2,s3,stats,tunnel,builder
+
+  builder-dind:
+    image: docker:28-dind
+    privileged: true
+    restart: unless-stopped
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        cp /certs/root-ca.pem /certs/server-ca.pem /usr/local/share/ca-certificates/ 2>/dev/null || true
+        update-ca-certificates 2>/dev/null || true
+        exec dockerd-entrypoint.sh dockerd --host=unix:///var/run/docker.sock --host=tcp://0.0.0.0:2375 --tls=false
+    volumes:
+      - builder-dind-data:/var/lib/docker
+      - certs-data:/certs
+
+  builder:
+    image: open-balena-builder:patched
+    restart: unless-stopped
+    depends_on:
+      - builder-dind
+    environment:
+      BALENA_TLD: ${DNS_TLD}
+      API_HOST: api.${DNS_TLD}
+      DELTA_HOST: delta.${DNS_TLD}
+      DOCKER_HOST_AMD64: tcp://builder-dind:2375
+      DOCKER_BUILDKIT: "0"
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      TOKEN_AUTH_BUILDER_TOKEN: ${TOKEN_AUTH_BUILDER_TOKEN}
+      HOME: /root
+
+volumes:
+  builder-dind-data: {}

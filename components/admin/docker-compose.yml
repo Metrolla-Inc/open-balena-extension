@@ -1,0 +1,61 @@
+# Community admin dashboard (ob-community / dcnext images): web console + device terminal +
+# PostgREST. Runs as its own compose project on the shared open-balena_default network.
+# Secrets and hostnames come from the environment — see ../../.env.example.
+#
+# Required env: OPEN_BALENA_JWT_SECRET, OPEN_BALENA_S3_ACCESS_KEY, OPEN_BALENA_S3_SECRET_KEY,
+#               PGRST_JWT_SECRET, DNS_TLD, DASHBOARD_HOST, and the *_PUBLIC_URL hostnames.
+services:
+  ui:
+    image: dcnext/open-balena-ui:latest
+    depends_on:
+      - postgrest
+    environment:
+      PORT: "8080"
+      OPEN_BALENA_JWT_SECRET: "${OPEN_BALENA_JWT_SECRET}"
+      OPEN_BALENA_S3_URL: "https://s3.${PUBLIC_TLD}"
+      OPEN_BALENA_S3_ACCESS_KEY: "${OPEN_BALENA_S3_ACCESS_KEY}"
+      OPEN_BALENA_S3_SECRET_KEY: "${OPEN_BALENA_S3_SECRET_KEY}"
+      REACT_APP_OPEN_BALENA_UI_URL: "https://${DASHBOARD_HOST}"
+      REACT_APP_OPEN_BALENA_POSTGREST_URL: "https://pgrst.${PUBLIC_TLD}"
+      REACT_APP_OPEN_BALENA_REMOTE_URL: "https://remote.${PUBLIC_TLD}"
+      REACT_APP_OPEN_BALENA_API_URL: "https://api.${PUBLIC_TLD}"
+      REACT_APP_OPEN_BALENA_API_VERSION: "${OPEN_BALENA_API_VERSION:-v44.0.8}"
+    ports:
+      - "8080:8080"
+    cap_add: [SYS_ADMIN, SYS_RESOURCE]
+    restart: unless-stopped
+    networks:
+      open-balena_default:
+        aliases: ["admin.${DNS_TLD}"]
+
+  remote:
+    image: dcnext/open-balena-remote:latest
+    environment:
+      BALENARC_BALENA_URL: "${DNS_TLD}"
+      HOST_MODE: insecure
+    volumes:
+      - ${INSTALL_ROOT:-/opt/openbalena}/admin/certs:/certs:ro
+    ports: ["10000-10009:10000-10009"]
+    cap_add: [SYS_ADMIN, SYS_RESOURCE]
+    restart: unless-stopped
+    networks:
+      open-balena_default:
+        aliases: ["remote.${DNS_TLD}"]
+
+  postgrest:
+    image: dcnext/open-balena-postgrest:latest
+    environment:
+      PGRST_DB_URI: "postgres://docker:docker@db:5432/resin"
+      PGRST_JWT_SECRET: "${PGRST_JWT_SECRET}"
+    volumes:
+      - ${INSTALL_ROOT:-/opt/openbalena}/admin/certs:/certs:ro
+    ports: ["8000:8000"]
+    cap_add: [SYS_ADMIN, SYS_RESOURCE]
+    restart: unless-stopped
+    networks:
+      open-balena_default:
+        aliases: ["postgrest.${DNS_TLD}"]
+
+networks:
+  open-balena_default:
+    external: true

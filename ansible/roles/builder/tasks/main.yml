@@ -1,0 +1,52 @@
+---
+# Build the patched builder image and add builder + builder-dind to the core project.
+- name: Copy builder build context
+  ansible.builtin.copy:
+    src: "{{ repo_root }}/components/builder/Dockerfile"
+    dest: "{{ install_root }}/builder-patch/Dockerfile"
+    mode: "0644"
+
+- name: Build patched builder image
+  community.docker.docker_image:
+    name: open-balena-builder
+    tag: patched
+    source: build
+    build:
+      path: "{{ install_root }}/builder-patch"
+      args:
+        BALENA_CLI_VERSION: "{{ balena_cli_version }}"
+    force_source: true
+
+- name: Read the API's builder token (if not set explicitly)
+  ansible.builtin.shell: |
+    docker exec open-balena-api-1 sh -c \
+      'cat /proc/$(pgrep -f node | head -1)/environ | tr "\0" "\n" | sed -nE "s/^TOKEN_AUTH_BUILDER_TOKEN=//p"'
+  register: api_token
+  changed_when: false
+  when: token_auth_builder_token | default('') == ''
+
+- name: Resolve builder token
+  ansible.builtin.set_fact:
+    _builder_token: "{{ token_auth_builder_token if (token_auth_builder_token | default('') != '') else api_token.stdout | trim }}"
+
+- name: Install the compose override (renders ${VARS} from .env)
+  ansible.builtin.template:
+    src: docker-compose.override.yml.j2
+    dest: "{{ install_root }}/open-balena/docker-compose.override.yml"
+    mode: "0640"
+
+- name: Write override .env (token + tld)
+  ansible.builtin.copy:
+    dest: "{{ install_root }}/open-balena/.builder.env"
+    mode: "0600"
+    content: |
+      DNS_TLD={{ dns_tld }}
+      TOKEN_AUTH_BUILDER_TOKEN={{ _builder_token }}
+      INSTALL_ROOT={{ install_root }}
+
+- name: Start builder + builder-dind + sidecar
+  community.docker.docker_compose_v2:
+    project_src: "{{ install_root }}/open-balena"
+    env_files: ["{{ install_root }}/open-balena/.builder.env"]
+    services: [builder-dind, builder, haproxy-sidecar]
+    state: present

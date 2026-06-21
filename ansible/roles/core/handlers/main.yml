@@ -1,0 +1,6 @@
+---
+- name: core up
+  ansible.builtin.command:
+    cmd: make up
+    chdir: "{{ install_root }}/open-balena"
+  changed_when: true

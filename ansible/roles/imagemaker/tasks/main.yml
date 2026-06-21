@@ -1,0 +1,49 @@
+---
+- name: Imagemaker dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ service_user }}"
+    mode: "0755"
+  loop:
+    - "{{ install_root }}/imagemaker"
+    - /var/lib/imagemaker/cache
+    - /var/lib/imagemaker/builds
+    - /var/lib/imagemaker/dist
+
+- name: Copy imagemaker sources
+  ansible.builtin.copy:
+    src: "{{ repo_root }}/components/imagemaker/{{ item.f }}"
+    dest: "{{ install_root }}/imagemaker/{{ item.f }}"
+    mode: "{{ item.m }}"
+    owner: "{{ service_user }}"
+  loop:
+    - { f: server.js,   m: "0644" }
+    - { f: index.html,  m: "0644" }
+    - { f: build-image.sh, m: "0755" }
+    - { f: prebuild.sh, m: "0755" }
+
+- name: Passwordless sudo for imagemaker ops
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/imagemaker
+    mode: "0440"
+    content: "{{ service_user }} ALL=(root) NOPASSWD: /usr/sbin/losetup, /usr/bin/mount, /usr/bin/umount, /usr/sbin/partprobe, /usr/sbin/blkid, /usr/bin/cp, /usr/bin/docker\n"
+    validate: visudo -cf %s
+
+- name: Install imagemaker.service
+  ansible.builtin.template:
+    src: imagemaker.service.j2
+    dest: /etc/systemd/system/imagemaker.service
+    mode: "0644"
+  notify: restart imagemaker
+
+- name: Enable imagemaker
+  ansible.builtin.systemd:
+    name: imagemaker
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Note — the service user's balena CLI must be logged into your openBalena backend
+  ansible.builtin.debug:
+    msg: "Run as {{ service_user }}: BALENARC_BALENA_URL={{ dns_tld }} balena login --credentials  (once)"

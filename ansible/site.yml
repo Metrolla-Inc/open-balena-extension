@@ -1,0 +1,27 @@
+---
+# Deploy openBalena core + extensions. Run with --tags to target a component.
+- name: openBalena + extensions
+  hosts: openbalena
+  become: true
+  vars:
+    repo_root: "{{ playbook_dir }}/.."
+  pre_tasks:
+    - name: Ensure base packages
+      ansible.builtin.package:
+        name: [docker.io, docker-compose-plugin, git, make, pigz, python3-docker]
+        state: present
+      tags: [always]
+    - name: Ensure service user
+      ansible.builtin.user:
+        name: "{{ service_user }}"
+        groups: docker
+        append: true
+      tags: [always]
+
+  roles:
+    - { role: core,       tags: [core] }
+    - { role: haproxy,    tags: [haproxy] }
+    - { role: builder,    tags: [builder] }
+    - { role: imagemaker, tags: [imagemaker], when: deploy_imagemaker | default(true) }
+    - { role: admin,      tags: [admin],      when: deploy_admin | default(true) }
+    - { role: delta,      tags: [delta],      when: deploy_delta | default(true) }

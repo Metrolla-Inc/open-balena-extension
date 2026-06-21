@@ -1,0 +1,59 @@
+# Drop into the open-balena core project as docker-compose.override.yml
+# (alongside the upstream docker-compose.yml). Adds the remote builder + a dedicated
+# plaintext Docker daemon, and registers the `builder` haproxy alias.
+#
+# Secrets/vars come from the environment (see ../../.env.example):
+#   DNS_TLD, TOKEN_AUTH_BUILDER_TOKEN
+# Build the patched image first:  docker build -t open-balena-builder:patched components/builder
+services:
+  # Mount the custom haproxy config (see ../haproxy/haproxy.cfg).
+  haproxy:
+    volumes:
+      - ${INSTALL_ROOT:-/opt/openbalena}/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+
+  # Make builder.${DNS_TLD} resolvable internally (append `builder` to the stock ALIASES).
+  haproxy-sidecar:
+    environment:
+      ALIASES: api,ca,cloudlink,db,delta,logs,redis,registry2,s3,stats,tunnel,builder
+
+  # Dedicated PLAINTEXT Docker daemon for builds. The builder CLI speaks only tcp://:2375
+  # (no TLS), so it can't reuse the TLS-only test dind. Trusts the internal CA so it can
+  # push to the self-signed registry.
+  builder-dind:
+    image: docker:28-dind
+    privileged: true
+    restart: unless-stopped
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        cp /certs/root-ca.pem /certs/server-ca.pem /usr/local/share/ca-certificates/ 2>/dev/null || true
+        update-ca-certificates 2>/dev/null || true
+        exec dockerd-entrypoint.sh dockerd --host=unix:///var/run/docker.sock --host=tcp://0.0.0.0:2375 --tls=false
+    volumes:
+      - builder-dind-data:/var/lib/docker
+      - certs-data:/certs
+
+  builder:
+    image: open-balena-builder:patched
+    restart: unless-stopped
+    depends_on:
+      - builder-dind
+    environment:
+      # Internal TLD — the builder runs inside the network and talks to api.${DNS_TLD} directly.
+      BALENA_TLD: ${DNS_TLD}
+      API_HOST: api.${DNS_TLD}
+      DELTA_HOST: delta.${DNS_TLD}
+      DOCKER_HOST_AMD64: tcp://builder-dind:2375
+      DOCKER_BUILDKIT: "0"
+      # Skip TLS verify for the self-signed backend; also set in the CLI wrapper.
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      # MUST equal the core API's generated TOKEN_AUTH_BUILDER_TOKEN.
+      TOKEN_AUTH_BUILDER_TOKEN: ${TOKEN_AUTH_BUILDER_TOKEN}
+      # The CLI wrapper needs a writable HOME.
+      HOME: /root
+
+volumes:
+  builder-dind-data: {}

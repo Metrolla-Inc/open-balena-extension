@@ -1,0 +1,26 @@
+# Secrets — never commit
+.env
+*.env.local
+**/certs/
+*.key
+*.pem
+!**/*.example
+!.env.example
+
+# Build artifacts / images
+*.img
+*.img.gz
+*.zip
+dist/
+builds/
+cache/
+
+# Ansible
+ansible/inventory.ini
+ansible/group_vars/all.yml
+*.retry
+
+# OS / editor
+.DS_Store
+*.swp
+__pycache__/

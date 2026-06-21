@@ -1,0 +1,32 @@
+---
+- name: Admin dir
+  ansible.builtin.file:
+    path: "{{ install_root }}/admin"
+    state: directory
+    mode: "0755"
+
+- name: Copy admin compose
+  ansible.builtin.copy:
+    src: "{{ repo_root }}/components/admin/docker-compose.yml"
+    dest: "{{ install_root }}/admin/docker-compose.yml"
+    mode: "0644"
+
+- name: Write admin env (secrets — mode 0600)
+  ansible.builtin.copy:
+    dest: "{{ install_root }}/admin/.env"
+    mode: "0600"
+    content: |
+      DNS_TLD={{ dns_tld }}
+      PUBLIC_TLD={{ public_tld }}
+      DASHBOARD_HOST={{ dashboard_host }}
+      INSTALL_ROOT={{ install_root }}
+      OPEN_BALENA_JWT_SECRET={{ open_balena_jwt_secret }}
+      OPEN_BALENA_S3_ACCESS_KEY={{ open_balena_s3_access_key }}
+      OPEN_BALENA_S3_SECRET_KEY={{ open_balena_s3_secret_key }}
+      PGRST_JWT_SECRET={{ pgrst_jwt_secret }}
+
+- name: Bring up admin dashboard
+  community.docker.docker_compose_v2:
+    project_src: "{{ install_root }}/admin"
+    env_files: ["{{ install_root }}/admin/.env"]
+    state: present
