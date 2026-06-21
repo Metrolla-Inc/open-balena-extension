@@ -25,6 +25,55 @@ openBalena issues device endpoints under a single `DNS_TLD`. This project suppor
 - `balena device ssh` and the dashboard terminal both ride the **VPN**. If a device's VPN is down, neither works.
 - Host SSH (`:22222`) only trusts keys baked into `config.json` `os.sshKeys` at **provision time**; this OS does **not** sync newly-registered account keys to a running device (even after reboot). So you cannot mint a key a misconfigured device will accept — fix via console or **reflash** with a correct `__internet` image (which also bakes in registered account keys).
 
+## Deploying as an AI assistant (operational runbook)
+If a human asks you to **stand this up or operate it** (not just edit files), treat it differently
+from a code change: deploying mutates a real host, a real PKI, and **live devices in the field**. A
+bad step can knock a fleet offline, and some state (the DB + PKI) is irreplaceable. Work the
+idempotent `make` path, verify every step, and confirm before anything hard to reverse.
+
+### The happy path (prefer this over ad-hoc commands)
+1. **Preflight — `make doctor`.** Read-only, always safe. Fix tooling + DNS *first*; a missing
+   wildcard `*.${PUBLIC_TLD}` is the #1 failure and devices silently won't connect.
+2. **Config — `make bootstrap`** (`make ansible-config` for the Ansible vars too). Idempotent;
+   it generates secrets into git-ignored files. **Never echo, log, or paste those secrets** (incl.
+   the builder token read from `/proc/<node-pid>/environ`) into chat, a PR, or a commit.
+3. **Deploy — `make deploy`**, or a scoped `make deploy-<tag>` (e.g. `deploy-builder`,
+   `deploy-imagemaker`) to limit blast radius. Core comes up first; the builder then reads the
+   API-generated token from the running core (invariant 1).
+4. **Verify — don't claim success without it.** Re-run `make doctor`; then
+   `curl -k https://api.${PUBLIC_TLD}/ping` → `OK`, the `builder.` route → `404` (route alive),
+   and a real `balena push <fleet>`. Report the actual output; if a step failed or was skipped, say so.
+
+### Order & dependencies (don't reorder)
+- **DNS wildcard resolves** before any device is expected to connect.
+- **Core before builder/delta** — they mirror `TOKEN_AUTH_BUILDER_TOKEN` from the API.
+- **Validate before applying:** `ansible-playbook --syntax-check` and a `--check --diff` dry run;
+  `docker compose config` for compose edits; `haproxy -c` *inside* the running container before any
+  reload (invariant 5), keeping the timestamped backup.
+
+### Safe vs. confirm-first vs. never
+- **Always safe / read-only:** `make doctor`, `docker compose config`, `--syntax-check`,
+  `ansible ... --check --diff`, reading container status/logs.
+- **Confirm with the human first (hard to reverse):** running `make deploy`/`make up` against an
+  **already-running** instance, reloading haproxy, regenerating certs/PKI, **deleting any volume**
+  (`db-data`, `pki-data`, `certs-data`, `s3-data` are irreplaceable — lose them and devices can no
+  longer re-auth), and anything that rewrites a live device's `config.json`.
+- **Never:** print or commit secrets; fire **concurrent** `balena push` (they race — invariant 4);
+  publish to an external service or expose the imagemaker unauthenticated (invariant 7).
+
+### Idempotency & recovery
+The roles are written to be re-runnable, and the `core` role uses `update: false` so a re-run
+won't clobber a live deployment — but still prefer scoped tags and `--check` when iterating. Before
+you rely on an instance, confirm backups of the irreplaceable state (`db-data`, `pki-data`,
+`certs-data`, `s3-data` + the `.env`/overrides); the checklist is in [docs/setup.md](docs/setup.md).
+
+### Set expectations honestly — what you *cannot* do remotely
+Device SSH and the dashboard terminal both ride the VPN, and this OS won't accept a freshly-minted
+key on a running device (see "Device access reality"). So don't promise to "remote in and fix" a
+broken device — the real fix is console access or **reflashing an `__internet` image**. The classic
+trap: a device reads `api_heartbeat_state: online` but `is_connected_to_vpn: false` — it *looks*
+deployed but its endpoints are still internal. Diagnose with the TLD split, don't declare victory.
+
 ## Repo layout
 - `components/` — the actual source (imagemaker, builder, haproxy, admin). Reference implementations; paths/domains parameterized where practical.
 - `ansible/` — playbooks/roles to deploy core + extensions.
