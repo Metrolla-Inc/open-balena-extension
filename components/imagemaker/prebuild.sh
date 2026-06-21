@@ -27,8 +27,7 @@ MANIFEST=(
 declare -A DTMAP
 while IFS='|' read -r slug dtype; do
   [ -n "$slug" ] && DTMAP["$slug"]="$dtype"
-done < <(sudo -n docker exec "$DB_CONTAINER" psql -U docker -d resin -tAF '|' -c \
-  'select a.slug, dt.slug from application a join "device type" dt on a."is for-device type"=dt.id order by a.id;')
+done < <(sudo -n "${IMAGEMAKER_FLEETS_HELPER:-/usr/local/bin/ob-fleets}" "$DB_CONTAINER")
 
 resolve_ver(){ BALENARC_BALENA_URL=balena-cloud.com balena os versions "$1" 2>/dev/null | sed 's/^v//' | grep -E '^[0-9]' | head -1 || true; }
 san(){ echo "$1" | sed 's/[^a-zA-Z0-9._-]/-/g'; }
