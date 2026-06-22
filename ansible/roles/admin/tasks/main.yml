@@ -25,6 +25,33 @@
       OPEN_BALENA_S3_SECRET_KEY={{ open_balena_s3_secret_key }}
       PGRST_JWT_SECRET={{ pgrst_jwt_secret }}
 
+# --- 443-only web terminal (see docs/dashboard-terminal.md). Skip this block (and revert the
+# remote service to stock high-port mode in docker-compose.yml) by setting admin_terminal_443=false.
+- name: Extract open-balena-remote.js for the 443 terminal patch
+  ansible.builtin.shell: |
+    set -e
+    cid=$(docker create dcnext/open-balena-remote:latest)
+    docker cp "$cid":/usr/src/app/open-balena-remote.js "{{ install_root }}/admin/open-balena-remote.js"
+    docker rm "$cid"
+  args:
+    creates: "{{ install_root }}/admin/open-balena-remote.js"
+  when: admin_terminal_443 | default(true)
+
+- name: Apply the 443 terminal patch (idempotent)
+  ansible.builtin.command: "bash {{ repo_root }}/components/admin/patch-remote-443.sh {{ install_root }}/admin/open-balena-remote.js"
+  changed_when: false
+  when: admin_terminal_443 | default(true)
+
+- name: Install device-trusted terminal SSH key (public half MUST be in devices' os.sshKeys; vault this)
+  ansible.builtin.copy:
+    content: "{{ admin_terminal_ssh_key }}"
+    dest: "{{ install_root }}/admin/certs/device_key"
+    mode: "0600"
+  no_log: true
+  when:
+    - admin_terminal_443 | default(true)
+    - admin_terminal_ssh_key is defined
+
 - name: Bring up admin dashboard
   community.docker.docker_compose_v2:
     project_src: "{{ install_root }}/admin"

@@ -32,9 +32,18 @@ services:
     image: dcnext/open-balena-remote:latest
     environment:
       BALENARC_BALENA_URL: "${DNS_TLD}"
-      HOST_MODE: insecure
+      # secure: required so the SameSite=None session cookie gets the Secure flag over HTTPS
+      # (without it browsers drop the cookie and the ttyd request has no session).
+      HOST_MODE: secure
     volumes:
       - ${INSTALL_ROOT:-/opt/openbalena}/admin/certs:/certs:ro
+      # 443-only terminal patch (see ../../docs/dashboard-terminal.md + patch-remote-443.sh):
+      # mount the patched service file, and a device-trusted key for host SSH (public half must be
+      # in the devices' os.sshKeys). Comment these two out for the stock high-port behaviour.
+      - ${INSTALL_ROOT:-/opt/openbalena}/admin/open-balena-remote.js:/usr/src/app/open-balena-remote.js:ro
+      # device_key (chmod 600) lives alongside the certs and is read at /certs/device_key
+    # ports 10000-10009 only needed for the stock high-port mode; with the 443 patch the terminal
+    # is fronted on 443 (Cloudflare tunnel / haproxy) -> localhost:10000, so these can be dropped.
     ports: ["10000-10009:10000-10009"]
     cap_add: [SYS_ADMIN, SYS_RESOURCE]
     restart: unless-stopped
