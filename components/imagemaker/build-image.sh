@@ -87,6 +87,10 @@ if [ "$CONN" = "internet" ]; then
   sed -i "s/${DNS_TLD//./\\.}/${PUBLIC_TLD}/g" "$WORK/config.json"
 fi
 
+# Bake account SSH keys into os.sshKeys so `balena ssh <device>` works (devices don't sync keys).
+echo "[build] baking account ssh keys into os.sshKeys..."
+"$(dirname "$0")/inject-sshkeys.sh" "$WORK/config.json" || echo "[build] WARN: ssh key injection failed"
+
 echo "[build] injecting config.json into boot partition..."
 LOOP=$(sudo -n losetup -fP --show "$WORK/dev.img")
 sudo -n partprobe "$LOOP" 2>/dev/null || true; sleep 1

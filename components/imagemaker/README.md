@@ -14,9 +14,23 @@ A small, bespoke web service that builds **ready-to-flash, fleet-preconfigured b
 |---|---|
 | `server.js` | Node web service (localhost:8090) + JSON API + download endpoint |
 | `index.html` | Single-page UI |
-| `build-image.sh` | Does one build (download → config → rewrite → inject → compress) |
+| `build-image.sh` | Does one build (download → config → rewrite → **bake ssh keys** → inject → compress) |
+| `inject-sshkeys.sh` | Bakes account SSH keys into `config.json` `os.sshKeys` (see SSH access below) |
 | `prebuild.sh` | Batch-builds `lan`+`internet` variants for a manifest of fleets |
 | `imagemaker.service` | systemd unit |
+
+## SSH access (important)
+openBalena devices on current balenaOS do **not** dynamically sync account SSH keys to the host —
+they only trust keys baked into `config.json` `os.sshKeys` at provision time. Without this,
+`balena ssh <device>` is rejected with `Permission denied (publickey)` on *every* device. So
+`build-image.sh` runs **`inject-sshkeys.sh`** after `config generate`, which copies every account
+public key (`select "public key" from "user-has-public key"`) into `os.sshKeys`. Result: `balena ssh`
+works on every device built from this instance. Register your key first (`balena key add <name> <pub>`),
+then build — the image picks it up.
+
+> The dcnext **dashboard** web terminal regenerates an ephemeral key per session, so baked keys don't
+> help it (it needs the device to trust each new key, which this OS won't do). Use `balena ssh` /
+> `balena tunnel` for reliable device access; the dashboard terminal is a separate, unsolved item.
 
 ## Requirements
 - A balena CLI on the host, **logged into your openBalena backend** in the service user's `~/.balena`.

@@ -29,7 +29,10 @@ For field-scale bandwidth, offload registry blobs to cloud object storage (R2) w
 
 ## Device access reality (important when "fixing a device")
 - `balena device ssh` and the dashboard terminal both ride the **VPN**. If a device's VPN is down, neither works.
-- Host SSH (`:22222`) only trusts keys baked into `config.json` `os.sshKeys` at **provision time**; this OS does **not** sync newly-registered account keys to a running device (even after reboot). So you cannot mint a key a misconfigured device will accept — fix via console or **reflash** with a correct `__internet` image (which also bakes in registered account keys).
+- Host SSH (`:22222`) only trusts keys baked into `config.json` `os.sshKeys` at **provision time**; this OS does **not** sync newly-registered account keys to a running device (even after reboot). So you cannot mint a key a misconfigured device will accept — fix via console or **reflash** with an image built by the current imagemaker.
+- **The imagemaker bakes account keys into `os.sshKeys`** (`inject-sshkeys.sh`, run by `build-image.sh`) so `balena ssh` works on every newly-built device. Register your key (`balena key add`) **before** building. Already-flashed devices that predate this need a reflash or a console `config.json` edit.
+- The `balena tunnel` / `balena ssh` path validates the VPN tunnel-server cert against the **CA bundle**, not `NODE_TLS_REJECT_UNAUTHORIZED` — set `NODE_EXTRA_CA_CERTS` to the openBalena CA bundle (root+server CA) for tunnels to work (this is also required on the dcnext `remote` service for the dashboard terminal).
+- The dcnext **dashboard terminal** regenerates an ephemeral SSH key per session; since devices don't sync keys, baked `os.sshKeys` won't match it — it remains unsolved on this OS. `balena ssh` is the reliable path.
 
 ## Deploying as an AI assistant (operational runbook)
 If a human asks you to **stand this up or operate it** (not just edit files), treat it differently
