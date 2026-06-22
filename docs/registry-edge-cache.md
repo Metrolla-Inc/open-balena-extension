@@ -49,14 +49,42 @@ if you already run Cloudflare DNS (see [public-ingress.md](public-ingress.md)).
    ```
    (Exact env names follow your registry image's confd template; the docker distribution registry
    also honours `REGISTRY_STORAGE_S3_*` overrides directly.)
-3. **Re-push** your release(s) so blobs populate R2 (one-time uplink cost):
-   `balena push <fleet>`.
-4. **Verify** a device pulls from the edge — its engine should follow a `307` to
-   `*.r2.cloudflarestorage.com` (or your custom domain), not your host:
+3. **Populate R2.** Either **re-push** every release (`balena push <fleet>` — one-time uplink cost),
+   **or migrate the existing blobs** from your current store (minio) to R2 (see below). Do this
+   **before** repointing the registry, or do it and then verify completeness (next step) — a device
+   assigned to a release whose blobs aren't all in R2 will fail to pull.
+4. **Verify the migration is COMPLETE — this is mandatory, not optional.**
+   A partial blob copy is the nastiest failure mode here: the big layer blobs copy fine, but if even
+   one small **manifest/config JSON blob** is missing, the registry resolves the manifest *link* →
+   tries to read the manifest *blob* → 404 `manifest unknown`, and **every** device pull dies at 0%
+   with `manifest for …@sha256:… not found`. The device looks broken; it is not — the registry's
+   store is. **Reflashing the device will NOT help** (the fault is server-side). Check blob-count
+   parity and that a previously-failing manifest now serves:
    ```bash
+   # object-count parity, source store vs R2 (must be EQUAL)
+   mc ls --recursive src/<bucket>/data/docker/registry/v2/blobs/ | wc -l
+   mc ls --recursive r2/<bucket>/data/docker/registry/v2/blobs/  | wc -l
+   # the registry must serve a real manifest (200) and 307 a blob to R2:
    curl -k -sI -H "Authorization: Bearer <reg-token>" \
-     https://registry2.<PUBLIC_TLD>/v2/<repo>/blobs/<digest> | grep -i location
+     https://registry2.<PUBLIC_TLD>/v2/<repo>/manifests/<digest>      # -> 200, not 404
+   curl -k -sI -H "Authorization: Bearer <reg-token>" \
+     https://registry2.<PUBLIC_TLD>/v2/<repo>/blobs/<digest> | grep -i location   # -> r2 URL
    ```
+
+### Migrating existing blobs (minio → R2) without losing the small ones
+Don't hand-copy only `blobs/` or only the big objects — you **must** copy the entire
+`data/docker/registry/v2/` tree (both `blobs/` **and** `repositories/`, including every tiny
+`link` and every manifest/config blob). Use `mc mirror` between two S3 endpoints so nothing is
+selectively dropped:
+```bash
+# source = your minio (fronted on :80 inside the s3 container); creds = REGISTRY2_S3_KEY/SECRET
+mc alias set src http://<s3-host>:80 "$REGISTRY2_S3_KEY" "$REGISTRY2_S3_SECRET"
+mc alias set r2  https://<ACCOUNT_ID>.r2.cloudflarestorage.com "$R2_KEY" "$R2_SECRET"
+mc mirror --overwrite src/<bucket>/data r2/<bucket>/data      # idempotent; re-run until counts match
+```
+`mc mirror` only transfers missing/changed objects, so it's safe to re-run; re-run it until the
+blob counts in step 4 are exactly equal. (A plain filesystem copy of the minio volume does **not**
+work — modern minio stores objects as `xl.meta`/`part.N`, not 1:1 files.)
 
 ## Optional: custom domain
 Map an R2 custom domain via your Cloudflare DNS (e.g. `registry-cache.<your-domain>`) so redirect
