@@ -34,12 +34,19 @@ session. The patch:
   derives "used" ports from the browser's own session cookies, so reopening a terminal before the
   prior session expired pushed the new one to a high port (10001–10009) — blocked by Cloudflare/most
   networks → the terminal goes **blank/white again** even though the server is healthy. Pinning to
-  10000 (and killing any prior session there) keeps it on 443.
+  10000 keeps it on 443. The patch does **not** kill the prior session, so multiple terminals coexist
+  (see below).
 
-> One concurrent terminal over 443. Opening a new terminal **replaces** the previous session (it
-> reuses port 10000) rather than falling back to a blocked high port. True multi-session-over-443
-> would need path-based routing — a larger change. If the terminal ever does go blank, a
+> **Multiple concurrent terminals over 443.** Each session bakes its own VPN tunnel port + ttyd args
+> into its URL, and for SSH the proxy route is always ttyd regardless of which session the shared
+> base-port cookie maps to — so concurrent SSH terminals all run on port 10000/443 without killing
+> each other. (Sessions are reaped on their 6 h expiry; for VNC, which needs per-session server-port
+> routing, stick to one at a time.) If a terminal ever goes blank, a
 > `docker restart openbalena-admin-remote-1` clears any stuck session state.
+>
+> **After editing the patched JS, you must restart the container** — Node reads
+> `open-balena-remote.js` only at startup, so an edit (or re-running this script) doesn't take effect
+> until `docker restart openbalena-admin-remote-1`.
 
 ## Setup
 1. **Cert.** The service serves HTTPS itself from `/certs/certificate.crt` + `/certs/private_key.key`.
