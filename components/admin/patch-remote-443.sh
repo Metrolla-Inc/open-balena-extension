@@ -48,6 +48,28 @@ if old3 in s:
 elif '/certs/device_key' not in s:
     raise SystemExit("privateKey block not found and not already patched")
 
+# 4. Single-operator: ALWAYS reuse the base port (10000) so the terminal always rides 443.
+#    The stock allocator marks a port "used" from the browser's own session cookies, so reopening
+#    a terminal (before the prior session expires) pushes the new one to a high port (10001-10009),
+#    which Cloudflare/most networks block -> blank/white terminal. Pinning to the base port (and
+#    killing any prior session on it, mirroring the soonest-expiring reuse path) keeps it on 443.
+#    Tradeoff: one concurrent terminal — already the documented limit of this single-443 design.
+old4='''  // always use base port if available, otherwise remove it from the list
+  if (!cookiesArr.find(x => x.port == PORT)) {
+    return PORT;
+  } else {
+    cookiesArr = cookiesArr.filter(x => x.port != PORT);
+  }'''
+new4='''  // single-operator mode: always reuse the base port (10000) so the terminal always rides 443.
+  // Kill any prior session still holding it (mirrors the soonest-expiring reuse path below).
+  var basePortSession = cookiesArr.find(x => x.port == PORT);
+  if (basePortSession) { cleanupSession.bind({"sessionID": basePortSession.sessionID})(); }
+  return PORT;'''
+if old4 in s:
+    s=s.replace(old4,new4)
+elif 'single-operator mode: always reuse the base port' not in s:
+    raise SystemExit("port-allocation block not found and not already patched")
+
 open(f,"w").write(s)
 print("patched:", f)
 PY

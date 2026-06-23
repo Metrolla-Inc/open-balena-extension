@@ -30,9 +30,16 @@ session. The patch:
 - **Uses a fixed device-trusted key** at `/certs/device_key` instead of the ephemeral one. Mount a
   key whose **public half is in the devices' `os.sshKeys`** (e.g. the key the imagemaker bakes).
 
-> Single concurrent terminal works over 443. A *second simultaneous* session still falls back to a
-> high port (10001+); fine for one operator. True multi-session-over-443 would need path-based
-> routing — a larger change.
+- **Pins every session to the base port (10000)** so it always rides 443. The stock allocator
+  derives "used" ports from the browser's own session cookies, so reopening a terminal before the
+  prior session expired pushed the new one to a high port (10001–10009) — blocked by Cloudflare/most
+  networks → the terminal goes **blank/white again** even though the server is healthy. Pinning to
+  10000 (and killing any prior session there) keeps it on 443.
+
+> One concurrent terminal over 443. Opening a new terminal **replaces** the previous session (it
+> reuses port 10000) rather than falling back to a blocked high port. True multi-session-over-443
+> would need path-based routing — a larger change. If the terminal ever does go blank, a
+> `docker restart openbalena-admin-remote-1` clears any stuck session state.
 
 ## Setup
 1. **Cert.** The service serves HTTPS itself from `/certs/certificate.crt` + `/certs/private_key.key`.
