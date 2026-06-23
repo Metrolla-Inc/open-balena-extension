@@ -30,6 +30,15 @@ a single **443** endpoint and SSH as `root` with a fixed **device-trusted** key,
 Full walkthrough + verification: [../../docs/dashboard-terminal.md](../../docs/dashboard-terminal.md).
 The `HOST_MODE: secure` setting and the two extra mounts in `docker-compose.yml` are part of this.
 
+## Known limitation: the logs panel is not realtime
+The openBalena API streams device logs in realtime (the supervisor POSTs to `…/log-stream`; the API
+serves an `application/x-ndjson` stream on `…/device/v2/<uuid>/logs?stream=1`, which `balena logs`
+follows live). But the dcnext `open-balena-ui` log viewer reads a **finite batch** (`GET …/logs`,
+no `stream=1`) to completion and only re-fetches occasionally, so the panel lags — it's a UI-side
+limitation, not an infra/Cloudflare problem (Cloudflare passes the stream through fine). For live
+tailing use the CLI: `balena logs <uuid> --tail`. True in-dashboard realtime needs `open-balena-ui`
+rebuilt from source to consume the `?stream=1` endpoint incrementally.
+
 ## Delta service
 The `openbalena-delta` project ([components/delta](../delta/)) runs `open-balena-delta` for
 efficient delta image updates. It shares the builder token and the internal TLD.
