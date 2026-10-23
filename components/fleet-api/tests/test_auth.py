@@ -37,6 +37,14 @@ def test_auth_on_requires_a_caller_and_the_route_permission(world):
     assert world.client.get('/fleet/v1/fleets', headers=wrong).status_code == 401
 
 
+def test_openapi_document_needs_a_signed_in_caller(world):
+    world.start(auth=auth_on())
+    assert world.client.get('/fleet/v1/swagger.json').status_code == 401
+    r = world.client.get('/fleet/v1/swagger.json', headers=as_('viewer'))
+    assert r.status_code == 200 and '/fleets' in r.json['paths']
+    assert world.client.get('/fleet/v1/docs', headers=as_('viewer')).status_code == 200
+
+
 def test_writes_are_audited_with_the_caller(world):
     world.start(auth=auth_on())
     world.client.patch(ENV, json={'set': {'A': '1'}}, headers=as_('rm'))
