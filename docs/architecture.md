@@ -31,6 +31,7 @@ The base stack from [balena-io/open-balena](https://github.com/balena-io/open-ba
 | **[Remote builder](../components/builder/)** | openBalena core ships **no** builder (balenaCloud's is closed-source), so `balena push` returns `404 Remote builder`. Adds `builder` (patched community image) + a dedicated plaintext `builder-dind`, wired through a `builder.` haproxy route. |
 | **[Imagemaker](../components/imagemaker/)** | A bespoke Node web service + shell scripts that produce ready-to-flash, fleet-preconfigured balenaOS images — including the **internal→public endpoint rewrite** that makes remote devices actually connect. |
 | **[Custom haproxy](../components/haproxy/)** | A hand-written static `haproxy.cfg` (mounted via override) replacing openBalena's auto-generated one, so extra routes (`builder.`, dashboard subdomains) and longer build timeouts can be expressed. |
+| **[Fleet Control API](../components/fleet-api/)** | `/fleet/v1` on the host (`fleet.` route): wraps the openBalena API, the builder, the VPN proxy and the imagemaker with sign-in, roles, audit and change control. Opt-in (`deploy_fleet_api`). See [fleet-api.md](fleet-api.md). |
 
 ## 3. Third-party community add-ons
 | Component | Source |
@@ -39,10 +40,11 @@ The base stack from [balena-io/open-balena](https://github.com/balena-io/open-ba
 | **Delta** | `open-balena-delta` — efficient delta image updates. |
 
 ## Compose projects on the host
-Three independent `docker compose` projects share the `open-balena_default` network:
+Independent `docker compose` projects share the `open-balena_default` network:
 - `open-balena` — core + the builder/builder-dind override.
 - `openbalena-admin` — ui / remote / postgrest.
 - `openbalena-delta` — delta.
+- `openbalena-fleet` — the Fleet Control API (optional).
 
 ## The cross-cutting nuance
 None of the above is unusual on its own. What shapes the whole deployment is the **internal `DNS_TLD` vs public `PUBLIC_TLD` split** — it's *why* the imagemaker rewrite, the builder's internal-TLD config, and the public haproxy routes all exist. See **[dns-tld-split.md](dns-tld-split.md)**.

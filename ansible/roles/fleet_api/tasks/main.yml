@@ -1,0 +1,111 @@
+---
+# Fleet Control API: its own compose project on the openBalena network (like admin/ and delta/).
+- name: Fleet API needs a balena API key
+  ansible.builtin.fail:
+    msg: "Set fleet_api_balena_api_key (vault it): `balena api-key generate fleet-api` as an admin user."
+  when: fleet_api_balena_api_key | default('') == ''
+
+- name: Fleet API dirs
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ install_root }}/fleet-api", mode: "0755" }
+    - { path: "{{ install_root }}/fleet-api/build", mode: "0755" }
+    - { path: "{{ install_root }}/fleet-api/build/vendor", mode: "0755" }
+    - { path: "{{ install_root }}/fleet-api/config", mode: "0755" }
+    - { path: "{{ install_root }}/fleet-api/secrets", mode: "0700" }
+
+- name: Copy the build context
+  ansible.builtin.copy:
+    src: "{{ repo_root }}/components/fleet-api/{{ item }}"
+    dest: "{{ install_root }}/fleet-api/build/"
+    mode: preserve
+  loop: [Dockerfile, .dockerignore, requirements.txt, requirements-auth.txt, wsgi.py, fleet_api,
+         metrolla_change_control]
+
+- name: Vendor metrolla-auth from the control node
+  ansible.builtin.copy:
+    src: "{{ fleet_api_metrolla_auth_src }}/"
+    dest: "{{ install_root }}/fleet-api/build/vendor/metrolla_auth/"
+    mode: preserve
+  when: fleet_api_metrolla_auth_src != ''
+
+# The token goes in as a one-off http.extraHeader, so it is not written to the checkout's config.
+- name: Check out metrolla-auth (EdgeAPI) on the host
+  ansible.builtin.git:
+    repo: "{{ fleet_api_metrolla_auth_repo }}"
+    dest: "{{ install_root }}/fleet-api/edgeapi-src"
+    version: "{{ fleet_api_metrolla_auth_ref }}"
+    depth: 1
+    force: true
+  environment:
+    GIT_CONFIG_COUNT: "{{ '1' if fleet_api_github_token else '0' }}"
+    GIT_CONFIG_KEY_0: http.extraHeader
+    GIT_CONFIG_VALUE_0: "Authorization: Basic {{ ('x-access-token:' + fleet_api_github_token) | b64encode }}"
+  no_log: true
+  when: fleet_api_metrolla_auth_src == ''
+
+- name: Vendor metrolla-auth from the checkout
+  ansible.builtin.copy:
+    src: "{{ install_root }}/fleet-api/edgeapi-src/packages/metrolla_auth/"
+    dest: "{{ install_root }}/fleet-api/build/vendor/metrolla_auth/"
+    remote_src: true
+    mode: preserve
+  when: fleet_api_metrolla_auth_src == ''
+
+- name: Build the Fleet API image
+  community.docker.docker_image:
+    name: metrolla-fleet-api
+    tag: local
+    source: build
+    build:
+      path: "{{ install_root }}/fleet-api/build"
+    force_source: true
+
+- name: Fleet API config
+  ansible.builtin.template:
+    src: fleet-api.yaml.j2
+    dest: "{{ install_root }}/fleet-api/config/fleet-api.yaml"
+    mode: "0644"
+
+- name: Fleet API sign-in config
+  ansible.builtin.template:
+    src: auth.yaml.j2
+    dest: "{{ install_root }}/fleet-api/config/auth.yaml"
+    mode: "0644"
+  when: fleet_api_manage_auth_config | bool
+
+- name: Fleet API secrets (mode 0600)
+  ansible.builtin.copy:
+    dest: "{{ install_root }}/fleet-api/secrets/{{ item.name }}"
+    content: "{{ item.value }}"
+    mode: "0600"
+  no_log: true
+  loop:
+    - { name: balena_api_key, value: "{{ fleet_api_balena_api_key }}" }
+    - { name: git_token, value: "{{ fleet_api_git_token }}" }
+    - { name: imagemaker_token, value: "{{ imagemaker_token | default('') }}" }
+    - { name: device_token, value: "{{ fleet_api_device_token }}" }
+
+- name: Copy the Fleet API compose file
+  ansible.builtin.copy:
+    src: "{{ repo_root }}/components/fleet-api/docker-compose.yml"
+    dest: "{{ install_root }}/fleet-api/docker-compose.yml"
+    mode: "0644"
+
+- name: Write the Fleet API compose env
+  ansible.builtin.copy:
+    dest: "{{ install_root }}/fleet-api/.env"
+    mode: "0600"
+    content: |
+      DNS_TLD={{ dns_tld }}
+      INSTALL_ROOT={{ install_root }}
+
+- name: Bring up the Fleet API
+  community.docker.docker_compose_v2:
+    project_src: "{{ install_root }}/fleet-api"
+    project_name: openbalena-fleet
+    env_files: ["{{ install_root }}/fleet-api/.env"]
+    state: present

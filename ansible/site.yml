@@ -25,3 +25,4 @@
     - { role: imagemaker, tags: [imagemaker], when: deploy_imagemaker | default(true) }
     - { role: admin,      tags: [admin],      when: deploy_admin | default(true) }
     - { role: delta,      tags: [delta],      when: deploy_delta | default(true) }
+    - { role: fleet_api,  tags: [fleet_api],  when: deploy_fleet_api | default(false) }

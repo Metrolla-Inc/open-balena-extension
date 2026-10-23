@@ -49,6 +49,7 @@ you don't have to learn it the hard way.
 | **[Imagemaker](components/imagemaker/)** | Web UI + scripts to build ready-to-flash, fleet-preconfigured device images | homemade |
 | **[Custom haproxy](components/haproxy/)** | Hand-written static ingress config (routes the builder + extras) | homemade |
 | **[Admin dashboard](components/admin/)** | Web UI / device terminal (the community [open-balena-ui](https://github.com/ob-community/open-balena-ui) stack) | third-party |
+| **[Fleet Control API](components/fleet-api/)** | `/fleet/v1`: build + finalize releases, wave rollouts under change control, env, devices, images, drift, server upkeep ([docs](docs/fleet-api.md)) | homemade, opt-in |
 
 Plus **[Ansible playbooks](ansible/)** to deploy core + all extensions from scratch, helper
 scripts (`make bootstrap` / `make doctor`), and **[docs](docs/)**:

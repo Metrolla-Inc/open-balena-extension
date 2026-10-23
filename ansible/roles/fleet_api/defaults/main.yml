@@ -1,0 +1,36 @@
+---
+# Fleet Control API (components/fleet-api). Off unless deploy_fleet_api: true.
+
+# metrolla-auth (private EdgeAPI repo): a package dir on the control node, or a git checkout.
+fleet_api_metrolla_auth_src: ""                 # e.g. ~/src/EdgeAPI/packages/metrolla_auth
+fleet_api_metrolla_auth_repo: https://github.com/Metrolla-Inc/EdgeAPI.git
+fleet_api_metrolla_auth_ref: feat/relay-auth
+fleet_api_github_token: ""                      # read access to EdgeAPI (vault it)
+
+# Secrets (vault these). The balena key: `balena api-key generate fleet-api` as an admin user.
+fleet_api_balena_api_key: ""
+fleet_api_git_token: ""                         # read-only, for the fleet repos it builds from
+fleet_api_device_token: ""                      # only when device EdgeAPI sign-in is on
+
+fleet_api_tls_verify: /certs/root-ca.pem        # false while proving the path on a lab host
+fleet_api_builder_mode: http                    # http | cli
+fleet_api_repo_base: https://github.com/Metrolla-Inc/
+fleet_api_allowed_repos: [balena-fleets, balena-fleets-metrollaprod]
+fleet_api_reach_mode: vpn_proxy                 # vpn_proxy | connectivity
+fleet_api_device_user: fleet-api
+# The imagemaker listens on 127.0.0.1 by default; set imagemaker_host: 172.17.0.1 so this
+# container can reach it at host.docker.internal.
+fleet_api_imagemaker_url: http://host.docker.internal:8090
+fleet_api_webhooks: []
+fleet_api_change_control:
+  mode: open
+
+# Sign-in (metrolla_auth `auth` section). Off by default: anonymous site_admin, limited to
+# these source networks. Do not route fleet.<tld> publicly while it is off.
+fleet_api_manage_auth_config: true
+fleet_api_auth:
+  enabled: false
+  anonymous_role: site_admin
+  allow_networks: [127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
+fleet_api_access: {}
+fleet_api_site_id: "{{ inventory_hostname }}"

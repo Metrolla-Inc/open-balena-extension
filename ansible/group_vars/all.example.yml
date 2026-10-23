@@ -29,7 +29,15 @@ open_balena_s3_access_key: ""
 open_balena_s3_secret_key: ""
 pgrst_jwt_secret: ""            # same value as open_balena_jwt_secret in the dcnext stack
 
+# Fleet Control API (docs/fleet-api.md) — off by default. Needs a balena API key and read
+# access to metrolla-auth (EdgeAPI) via fleet_api_metrolla_auth_src or fleet_api_github_token.
+fleet_api_balena_api_key: ""    # balena api-key generate fleet-api
+fleet_api_github_token: ""
+fleet_api_git_token: ""
+# imagemaker_host: 172.17.0.1   # let the fleet-api container reach the imagemaker
+
 # Which components to deploy
 deploy_admin: true
 deploy_delta: true
 deploy_imagemaker: true
+deploy_fleet_api: false
