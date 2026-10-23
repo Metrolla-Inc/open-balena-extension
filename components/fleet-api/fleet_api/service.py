@@ -126,7 +126,7 @@ class FleetService:
 
     def pin_device(self, device: dict, release: Optional[dict], actor: str, change_id: Optional[str] = None) -> dict:
         fleet = self.fleet_of(device)
-        previous = ref_id(device.get('is_pinned_on__release'))
+        previous = ref_id(device.get('should_be_running__release'))
         self.balena().pin_device(device['id'], release['id'] if release else None)
         self.record_target(fleet['slug'], device['uuid'], release['id'] if release else None, actor, change_id)
         return {'uuid': device['uuid'], 'fleet': fleet['slug'], 'previous_pinned_release_id': previous,

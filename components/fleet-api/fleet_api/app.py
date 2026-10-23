@@ -20,7 +20,7 @@ from sqlalchemy.orm import sessionmaker
 from metrolla_auth import AuthService, StaticConfigProvider, YamlFileConfigProvider
 from metrolla_auth import change_control as cc
 from metrolla_auth.errors import AuthError
-from metrolla_auth.flask import FlaskAuth, audit_values, current_principal, public, require
+from metrolla_auth.flask import FlaskAuth, audit_values, authenticated, current_principal, public, require
 from metrolla_auth.flask_routes import browser_blueprint, register_restx
 
 from .balena import BalenaClient, BalenaError
@@ -52,6 +52,12 @@ def utcnow():
 
 def _problem(status, code, title, detail=None, errors=None):
     return AuthError(status, code, title, detail, errors)
+
+
+def _signed_in(view):
+    def wrapped(*args, **kwargs):
+        return view(*args, **kwargs)
+    return authenticated(wrapped)
 
 
 def _verify(settings) -> object:
@@ -176,6 +182,10 @@ def create_app(settings: Optional[SettingsProvider] = None, auth_provider=None, 
     api = Api(app, prefix=PREFIX, doc=PREFIX + '/docs', title='Metrolla Fleet Control API', version='1.0',
               description='Fleets, releases, rollouts, env vars, devices, images and server upkeep for openBalena')
     register_restx(api)
+    # metrolla_auth exempts the OpenAPI views only under a blueprint named "api"; here they are app
+    # endpoints, so with sign-in on they would be refused as undeclared. Any signed-in caller may read them.
+    for endpoint in ('specs', 'doc'):
+        app.view_functions[endpoint] = _signed_in(app.view_functions[endpoint])
     app.register_blueprint(browser_blueprint(url_prefix='/fleet/auth', signin_page=SIGNIN_PAGE))
     app.extensions['fleet_api'] = {'components': comp, 'changes': changes, 'fleet': fleet, 'builds': builds,
                                    'images': images, 'server_ops': server_ops, 'notifier': notifier}

@@ -51,6 +51,15 @@ All notable changes to this project are documented here. The format follows
     self-apply a deploy. `GET /fleet/v1/changes/{id}` shows `approval_status` and `waiting_for`.
     New nullable columns `fleet_change_sets.author_permissions` and
     `fleet_change_approvals.permissions`, added on start to existing databases.
+- **Fleet API against a real openBalena:** pine refuses percent-encoded commas in OData queries
+  (`400 Malformed url` for `$select=id%2Cslug`), so every fleet, device and release read failed with
+  502 on the lab server. Queries now keep `,()'$;=` literal and percent-encode the rest.
+- **Device pins on current openBalena:** the API (open-balena-api 44) answers 500 when a query selects
+  `device.is_pinned_on__release`; device pins are now read and written as
+  `device.should_be_running__release`, as fleet pins are.
+- **OpenAPI with sign-in on:** `/fleet/v1/swagger.json` and the `/fleet/v1/docs` page answer any signed-in
+  caller. They were refused as undeclared routes, because metrolla_auth only exempts the OpenAPI views
+  under a blueprint named `api`.
 - **Image and compose project:** `components/fleet-api/Dockerfile` builds `metrolla-fleet-api:local`
   (Python 3.12, gunicorn with **one** worker and 8 threads because the change scheduler runs in the
   process, static docker CLI for server operations, healthcheck on `/fleet/v1/ping`).

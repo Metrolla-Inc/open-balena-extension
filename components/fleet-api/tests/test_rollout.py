@@ -15,7 +15,7 @@ def _post(world, items, **extra):
 
 
 def _pins(world):
-    return {d['device_name']: d['is_pinned_on__release'] for d in world.devices}
+    return {d['device_name']: d['should_be_running__release'] for d in world.devices}
 
 
 def test_build_then_wave_rollout_with_soak(world):

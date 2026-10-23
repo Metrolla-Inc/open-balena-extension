@@ -20,7 +20,7 @@ from werkzeug.serving import make_server
 NAV = {
     'application': ('should_be_running__release',),
     'release': ('belongs_to__application',),
-    'device': ('belongs_to__application', 'is_running__release', 'is_pinned_on__release'),
+    'device': ('belongs_to__application', 'is_running__release', 'should_be_running__release'),
     'service': ('application',),
     'image': ('is_a_build_of__service',),
     'release_image': ('release', 'image'),
@@ -203,7 +203,7 @@ class FakeBalena:
         d = self.add('device', uuid=uuidlib.uuid4().hex, device_name=name, belongs_to__application=app['id'],
                      is_online=online, last_connectivity_event=self.clock().isoformat(),
                      api_heartbeat_state='online' if online else 'offline', status='Idle',
-                     is_running__release=release['id'] if release else None, is_pinned_on__release=None,
+                     is_running__release=release['id'] if release else None, should_be_running__release=None,
                      supervisor_version='16.4.0', os_version='balenaOS 5.3.0')
         for svc in self.rows('service'):
             if svc['application'] == app['id']:
@@ -221,7 +221,7 @@ class FakeBalena:
                 if not d['is_online'] or d['uuid'] in stuck or d['device_name'] in stuck:
                     continue
                 app = self.db['application'][d['belongs_to__application']]
-                target = d['is_pinned_on__release'] or app['should_be_running__release']
+                target = d['should_be_running__release'] or app['should_be_running__release']
                 if target:
                     d['is_running__release'] = target
 
