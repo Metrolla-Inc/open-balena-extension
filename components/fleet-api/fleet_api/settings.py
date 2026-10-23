@@ -74,10 +74,12 @@ DEFAULTS: Dict[str, Any] = {
         'haproxy_health_url': 'http://haproxy:80/health',
         'haproxy_stats_url': '',        # e.g. https://haproxy:1936/metrics;csv
         'haproxy_stats_auth_file': '',  # "user:password"
-        'registry_config': '/etc/docker/registry/config.yml',
+        'registry_bin': '',             # '' = found in the container (registry, docker-registry)
+        'registry_config': '',          # '' = found in the container; see server.REGISTRY_CONFIGS
         'builder_disk_warn_pct': 80,
         'builder_disk_fail_pct': 90,
         'command_timeout_s': 900,
+        'operation_timeouts_s': {'registry_prune': 3600},   # per type, else command_timeout_s
     },
     'env': {'secret_patterns': DEFAULT_SECRET_PATTERNS},
     'rollout': {

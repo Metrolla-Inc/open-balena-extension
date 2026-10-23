@@ -7,18 +7,24 @@ set, its queued requests per backend, the builder answering HTTP, and builder-di
 Operations run docker on the host through the mounted socket, exactly as the runbook does:
   builder_prune    docker exec <builder-dind> docker image prune -af
   haproxy_restart  docker restart <haproxy>
-  registry_prune   docker exec <registry> registry garbage-collect [--dry-run] <config>
-registry_prune defaults to --dry-run; pass {"dry_run": false} to delete. Its config path and
-container name are settings (server.registry_config, server.containers.registry) to verify on
-.183 before the first real run.
+  registry_prune   docker exec <registry> <registry binary> garbage-collect [--dry-run] <config>
+registry_prune defaults to --dry-run; pass {"dry_run": false} to delete. The registry binary and
+config are found inside the container (stock registry:3, registry:2 and openBalena's own image
+differ) unless server.registry_bin / server.registry_config are set.
+
+docker exec has no kill and killing the docker client leaves the process running in the
+container, so an in-container command writes its pid to /tmp/fleet-api-<op id>.pid; on timeout,
+or when the API finds the operation still running after a restart, that pid is stopped.
 """
 import csv
 import io
+import json
 import logging
 import re
 import socket
 import subprocess
-from typing import Callable, List, Optional
+import threading
+from typing import Callable, List, Optional, Tuple
 
 import requests
 
@@ -29,6 +35,23 @@ log = logging.getLogger('fleet_api')
 
 OPERATIONS = ('registry_prune', 'builder_prune', 'haproxy_restart')
 MAX_OUTPUT = 16 * 1024
+REGISTRY_BINARIES = ('registry', 'docker-registry')
+# registry:3 (distribution v3), registry:2, balena/open-balena-registry (confd-rendered).
+REGISTRY_CONFIGS = ('/etc/distribution/config.yml', '/etc/docker/registry/config.yml', '/etc/docker-registry.yml')
+
+# sh -c <script> <pidfile> <argv...>: run argv as a child so its pid can be recorded and the
+# pidfile removed when it ends, however it ends.
+_TRACK = '"$@" & echo $! > "$0"; wait $!; rc=$?; rm -f "$0"; exit $rc'
+_STOP = ('[ -f "$0" ] || { echo "not running"; exit 0; }; p=$(cat "$0"); kill "$p" 2>/dev/null || '
+         '{ rm -f "$0"; echo "not running"; exit 0; }; i=0; while kill -0 "$p" 2>/dev/null; do '
+         'if [ "$i" -ge 10 ]; then kill -9 "$p" 2>/dev/null; echo "killed $p"; exit 0; fi; '
+         'sleep 1; i=$((i+1)); done; echo "stopped $p"')
+_PROBE = ('for b in ' + ' '.join(REGISTRY_BINARIES) + '; do if command -v "$b" >/dev/null 2>&1; then '
+          'echo "bin=$b"; break; fi; done; for p in "$@"; do if [ -f "$p" ]; then echo "config=$p"; break; fi; done')
+
+
+class OperationError(Exception):
+    pass
 
 
 class CommandRunner:
@@ -38,18 +61,75 @@ class CommandRunner:
         return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
 
 
-def operation_command(op: str, params: dict, server: dict) -> List[str]:
+def _text(value) -> str:
+    if isinstance(value, bytes):
+        return value.decode('utf-8', 'replace')
+    return value or ''
+
+
+def find_registry(runner: CommandRunner, server: dict) -> Tuple[str, str]:
+    """The registry binary and config path in the registry container; settings win."""
+    binary, config = server.get('registry_bin') or '', server.get('registry_config') or ''
+    if binary and config:
+        return binary, config
+    docker, name = server.get('docker', 'docker'), server['containers']['registry']
+    candidates = list(REGISTRY_CONFIGS)
+    try:
+        p = runner.run([docker, 'inspect', '--format', '{{json .Args}}', name], timeout=30)
+        args = json.loads(p.stdout or 'null') if p.returncode == 0 else None
+        if isinstance(args, list):
+            candidates = [a for a in args if isinstance(a, str) and a.endswith(('.yml', '.yaml'))] + candidates
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        pass
+    try:
+        p = runner.run([docker, 'exec', name, 'sh', '-c', _PROBE, 'probe', *candidates], timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise OperationError('could not look inside %s: %s' % (name, e))
+    if p.returncode != 0:
+        raise OperationError('could not look inside %s: %s' % (name, (_text(p.stderr).strip() or
+                                                                      'exit %d' % p.returncode)[:500]))
+    found = dict(ln.split('=', 1) for ln in _text(p.stdout).splitlines() if '=' in ln)
+    binary, config = binary or found.get('bin', ''), config or found.get('config', '')
+    if not binary:
+        raise OperationError('no registry binary (%s) in %s; set server.registry_bin' % (
+            ', '.join(REGISTRY_BINARIES), name))
+    if not config:
+        raise OperationError('none of %s exists in %s; set server.registry_config' % (', '.join(candidates), name))
+    return binary, config
+
+
+def operation_command(op: str, params: dict, server: dict,
+                      registry: Optional[Tuple[str, str]] = None) -> Tuple[Optional[str], List[str]]:
+    """(container, argv) for a command run inside a container; (None, argv) for a host docker command."""
     docker, names = server.get('docker', 'docker'), server['containers']
     if op == 'builder_prune':
-        return [docker, 'exec', names['builder_dind'], 'docker', 'image', 'prune', '-af']
+        return names['builder_dind'], ['docker', 'image', 'prune', '-af']
     if op == 'haproxy_restart':
-        return [docker, 'restart', names['haproxy']]
+        return None, [docker, 'restart', names['haproxy']]
     if op == 'registry_prune':
-        cmd = [docker, 'exec', names['registry'], 'registry', 'garbage-collect']
+        binary, config = registry
+        cmd = [binary, 'garbage-collect']
         if params.get('dry_run', True):
             cmd.append('--dry-run')
-        return cmd + [server['registry_config']]
+        return names['registry'], cmd + [config]
     raise ValueError('unknown operation %r' % op)
+
+
+def pidfile(op_id: str) -> str:
+    return '/tmp/fleet-api-%s.pid' % op_id
+
+
+def exec_tracked(docker: str, container: str, pid_path: str, argv: List[str]) -> List[str]:
+    return [docker, 'exec', container, 'sh', '-c', _TRACK, pid_path, *argv]
+
+
+def exec_stop(docker: str, container: str, pid_path: str) -> List[str]:
+    return [docker, 'exec', container, 'sh', '-c', _STOP, pid_path]
+
+
+def operation_timeout(op: str, server: dict) -> int:
+    per_op = server.get('operation_timeouts_s') or {}
+    return int(per_op.get(op) or server.get('command_timeout_s', 900))
 
 
 def op_to_dict(o: ServerOperation) -> dict:
@@ -63,16 +143,29 @@ class ServerOps:
         self.settings = settings
         self.runner = runner
         self.jobs = jobs
+        self._lock = threading.Lock()
 
-    def start(self, op: str, params: dict, actor: str) -> dict:
+    def running(self, op: str) -> Optional[str]:
         db = self.session_factory()
         try:
-            row = ServerOperation(id=new_id('sop'), type=op, params=params, state='running', created_by=actor)
-            db.add(row)
-            db.commit()
-            out = op_to_dict(row)
+            row = db.query(ServerOperation).filter_by(type=op, state='running').first()
+            return row.id if row else None
         finally:
             db.close()
+
+    def start(self, op: str, params: dict, actor: str) -> dict:
+        """The new operation, or None when one of this type is already running."""
+        with self._lock:
+            if self.running(op):
+                return None
+            db = self.session_factory()
+            try:
+                row = ServerOperation(id=new_id('sop'), type=op, params=params, state='running', created_by=actor)
+                db.add(row)
+                db.commit()
+                out = op_to_dict(row)
+            finally:
+                db.close()
         self.jobs.submit(self._run, out['id'])
         return out
 
@@ -84,25 +177,85 @@ class ServerOps:
         finally:
             db.close()
 
+    def _stop(self, docker: str, container: str, pid_path: str) -> str:
+        try:
+            p = self.runner.run(exec_stop(docker, container, pid_path), timeout=60)
+            return (_text(p.stdout) + _text(p.stderr)).strip() or 'exit %d' % p.returncode
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return 'could not stop it: %s' % e
+
+    def recover(self):
+        """Operations still 'running' in the database belong to a previous process (one process
+        runs them): stop whatever they left in their container and mark them failed."""
+        db = self.session_factory()
+        try:
+            docker = self.settings()['server'].get('docker', 'docker')
+            for row in db.query(ServerOperation).filter_by(state='running').all():
+                result = dict(row.result or {})
+                if result.get('container') and result.get('pidfile'):
+                    result['stopped'] = self._stop(docker, result['container'], result['pidfile'])
+                result['error'] = 'interrupted: the Fleet API restarted while it ran'
+                row.state, row.result, row.finished_at = 'failed', result, utcnow()
+                log.warning('server operation %s (%s) was interrupted by a restart', row.id, row.type)
+            db.commit()
+        finally:
+            db.close()
+
     def _run(self, op_id: str):
         db = self.session_factory()
         try:
             row = db.get(ServerOperation, op_id)
-            server = self.settings()['server']
-            cmd = operation_command(row.type, row.params or {}, server)
             try:
-                p = self.runner.run(cmd, timeout=int(server.get('command_timeout_s', 900)))
-                out = ((p.stdout or '') + (p.stderr or ''))[-MAX_OUTPUT:]
-                row.state = 'succeeded' if p.returncode == 0 else 'failed'
-                row.result = {'command': cmd, 'exit_code': p.returncode, 'output': out}
-            except subprocess.TimeoutExpired:
-                row.state, row.result = 'failed', {'command': cmd, 'error': 'timed out'}
-            except OSError as e:
-                row.state, row.result = 'failed', {'command': cmd, 'error': str(e)}
-            row.finished_at = utcnow()
-            db.commit()
+                self._execute(db, row)
+            except Exception as e:
+                # Never leave it 'running': that would refuse every later operation of this type.
+                log.exception('server operation %s failed', op_id)
+                db.rollback()
+                row = db.get(ServerOperation, op_id)
+                row.state, row.finished_at = 'failed', utcnow()
+                row.result = dict(row.result or {}, error='%s: %s' % (type(e).__name__, e))
+                db.commit()
         finally:
             db.close()
+
+    def _execute(self, db, row: ServerOperation):
+        op_id = row.id
+        server = self.settings()['server']
+        docker = server.get('docker', 'docker')
+        try:
+            registry = find_registry(self.runner, server) if row.type == 'registry_prune' else None
+        except OperationError as e:
+            row.state, row.result, row.finished_at = 'failed', {'error': str(e)}, utcnow()
+            db.commit()
+            return
+        container, argv = operation_command(row.type, row.params or {}, server, registry)
+        shown = [docker, 'exec', container, *argv] if container else argv
+        result = {'command': shown}
+        if container:
+            result.update(container=container, pidfile=pidfile(op_id))
+            cmd = exec_tracked(docker, container, result['pidfile'], argv)
+        else:
+            cmd = argv
+        row.result = dict(result)
+        db.commit()
+        timeout = operation_timeout(row.type, server)
+        try:
+            p = self.runner.run(cmd, timeout=timeout)
+            out = (_text(p.stdout) + _text(p.stderr))[-MAX_OUTPUT:]
+            row.state = 'succeeded' if p.returncode == 0 else 'failed'
+            result.update(exit_code=p.returncode, output=out)
+        except subprocess.TimeoutExpired as e:
+            row.state = 'failed'
+            result.update(error='timed out after %ds' % timeout,
+                          output=(_text(e.stdout) + _text(e.stderr))[-MAX_OUTPUT:])
+            if container:
+                result['stopped'] = self._stop(docker, container, result['pidfile'])
+        except OSError as e:
+            row.state = 'failed'
+            result['error'] = str(e)
+        row.result = result
+        row.finished_at = utcnow()
+        db.commit()
 
 
 def _status(ok: bool, detail, warn: bool = False) -> dict:

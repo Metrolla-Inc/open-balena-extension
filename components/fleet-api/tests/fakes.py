@@ -538,17 +538,35 @@ class HookSink:
 
 
 class FakeRunner:
-    """Records docker commands instead of running them."""
+    """Records docker commands instead of running them. The registry container looks like stock
+    registry:3 unless registry_args/bins/files say otherwise; a command with an argument in
+    `hang` times out."""
 
     def __init__(self, df_use=42):
         self.commands = []
         self.df_use = df_use
+        self.registry_args = ['serve', '/etc/distribution/config.yml']
+        self.registry_bins = ['registry']
+        self.registry_files = {'/etc/distribution/config.yml'}
+        self.hang = set()
 
     def run(self, args, timeout):
         import subprocess
+        from fleet_api import server
         self.commands.append(list(args))
         out = 'done'
-        if 'df' in args:
+        if self.hang & set(args):
+            raise subprocess.TimeoutExpired(args, timeout, output=b'marking blobs\n')
+        if args[1] == 'inspect':
+            out = json.dumps(self.registry_args)
+        elif server._PROBE in args:
+            i = args.index(server._PROBE)
+            found = [b for b in server.REGISTRY_BINARIES if b in self.registry_bins][:1]
+            out = ''.join('bin=%s\n' % b for b in found)
+            out += ''.join('config=%s\n' % c for c in [c for c in args[i + 2:] if c in self.registry_files][:1])
+        elif server._STOP in args:
+            out = 'stopped 4242\n'
+        elif 'df' in args:
             out = ('Filesystem 1024-blocks Used Available Capacity Mounted on\n'
                    'overlay 100 %d %d %d%% /var/lib/docker\n' % (self.df_use, 100 - self.df_use, self.df_use))
         return subprocess.CompletedProcess(args, 0, stdout=out, stderr='')

@@ -49,7 +49,7 @@ imagemaker_host: 172.17.0.1           # let the container reach the imagemaker
 1. fails early if `fleet_api_balena_api_key` is empty;
 2. vendors metrolla-auth into the build context, from `fleet_api_metrolla_auth_src` on the
    control node, or from a shallow checkout of `fleet_api_metrolla_auth_repo` at
-   `fleet_api_metrolla_auth_ref` (default `feat/relay-changes`, EdgeAPI PR #105, until it merges)
+   `fleet_api_metrolla_auth_ref` (default: the EdgeAPI `main` commit `requirements-auth.txt` pins)
    using `fleet_api_github_token`;
 3. builds `metrolla-fleet-api:local`;
 4. writes `<install_root>/fleet-api/config/{fleet-api,auth}.yaml` from the role templates
@@ -138,7 +138,7 @@ the previous settings stay; an invalid file at start-up refuses to start.
 | `git` | `repo_base` (`https://github.com/Metrolla-Inc/`), `allowed_repos` (empty = any under `repo_base`), `allow_urls` (false), `token_file`, `ssh_key_file`, `timeout_s` (300) |
 | `reach` | `mode` (`vpn_proxy` \| `connectivity`), `proxy_host` (`vpn`), `proxy_port` (3128), `proxy_tls` (false), `proxy_user` (`root`), `device_port` (80), `timeout_s` (10), `health_path` (`/api/v1/health`), `device_token_file`, `device_user` |
 | `imagemaker` | `url` (`http://host.docker.internal:8090`), `token_file` (`/run/secrets/imagemaker_token`), `timeout_s` (60) |
-| `server` | `docker`, `containers.{builder_dind,haproxy,registry}` (`open-balena-*-1`), `registry_url`, `builder_url`, `haproxy_health_url`, `haproxy_stats_url`, `haproxy_stats_auth_file`, `registry_config` (`/etc/docker/registry/config.yml`), `builder_disk_warn_pct` (80), `builder_disk_fail_pct` (90), `command_timeout_s` (900) |
+| `server` | `docker`, `containers.{builder_dind,haproxy,registry}` (`open-balena-*-1`), `registry_url`, `builder_url`, `haproxy_health_url`, `haproxy_stats_url`, `haproxy_stats_auth_file`, `registry_bin` and `registry_config` (empty: found in the registry container, see [Server health and upkeep](#server-health-and-upkeep)), `builder_disk_warn_pct` (80), `builder_disk_fail_pct` (90), `command_timeout_s` (900), `operation_timeouts_s` (`{registry_prune: 3600}`; per type, else `command_timeout_s`) |
 | `env` | `secret_patterns` (`TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `KEY`, `CREDENTIAL`, `PRIVATE`, `DSN`): names containing one are masked as `***` |
 | `rollout` | `update_timeout_min` (30), `site_change_timeout_min` (1440), `tick_s` (15), `verify_settle_s` (60) |
 | `webhooks` | `[{url, events: [glob], secret_file \| secret_env}]` |
@@ -206,7 +206,7 @@ gated` unless that class's policy needs no approval and no window (see
 | POST | `/fleets/{fleet}/site-changes` | change:author | Send a site change set to the fleet's devices in waves |
 | GET | `/drift` | fleet:view | Devices off target; target pins and env vars changed outside the API (`?fleet=`) |
 | GET | `/server/health` | fleet:view | API, registry, VPN, haproxy (backlog when stats are configured), builder + builder-dind disk |
-| POST | `/server/operations` | system:admin | `registry_prune` (`{params: {dry_run}}`), `builder_prune`, `haproxy_restart` (gated, async) |
+| POST | `/server/operations` | system:admin | `registry_prune` (`{params: {dry_run}}`), `builder_prune`, `haproxy_restart` (gated, async; 409 `operation-running` while one of the type runs) |
 | GET | `/server/operations/{id}` | fleet:view | Operation state and output |
 
 Added beyond the plan's catalog, because the catalog rows need them: `GET /builds/{id}` and
@@ -634,11 +634,33 @@ builder-dind disk use (warn 80%, fail 90%: run `builder_prune`).
 |---|---|
 | `builder_prune` | `docker exec open-balena-builder-dind-1 docker image prune -af` |
 | `haproxy_restart` | `docker restart open-balena-haproxy-1` |
-| `registry_prune` | `docker exec open-balena-registry-1 registry garbage-collect [--dry-run] /etc/docker/registry/config.yml` |
+| `registry_prune` | `docker exec open-balena-registry-1 <registry binary> garbage-collect [--dry-run] <config>` |
 
-`registry_prune` defaults to `--dry-run`; pass `{params: {dry_run: false}}` to delete. Its
-container name and config path are settings to verify on .183 before the first real run.
-Operations are async: poll `GET /server/operations/{id}`.
+`registry_prune` defaults to `--dry-run`; pass `{params: {dry_run: false}}` to delete. The
+registry binary and config path are found inside the registry container, because the images
+differ:
+
+| registry image | binary | config |
+|---|---|---|
+| `registry:3` (distribution v3) | `registry` | `/etc/distribution/config.yml` |
+| `registry:2` | `registry` | `/etc/docker/registry/config.yml` |
+| `balena/open-balena-registry` (upstream openBalena) | `docker-registry` | `/etc/docker-registry.yml` |
+
+A `.yml`/`.yaml` in the container's command (`docker inspect`, e.g. a compose `command:`) is
+tried first. `server.registry_bin` / `server.registry_config` override the lookup; when nothing
+is found the operation fails naming them.
+
+Operations are async: the POST returns 202 with the operation, then poll
+`GET /server/operations/{id}` until `state` is `succeeded` or `failed`. The HTTP request is never
+held for the command. Only one operation of a type runs at a time (another POST is 409
+`operation-running`). Each command has a time limit: `server.operation_timeouts_s` per type
+(`registry_prune` 3600 s), else `server.command_timeout_s` (900 s). docker exec has no kill and
+killing the docker client leaves the process running in the container, so in-container commands
+run under a small `sh` wrapper that writes the pid to `/tmp/fleet-api-<op id>.pid`. When the limit
+is hit the API stops that pid (TERM, KILL after 10 s): the result has `error: "timed out after
+<n>s"`, the output so far, and `stopped`. An operation still `running` when the Fleet API starts
+(it restarted mid-operation) is stopped the same way and marked `failed` with `error:
+"interrupted: …"`.
 
 ## Images
 
@@ -669,10 +691,10 @@ pip install -r requirements.txt -r requirements-auth.txt -r requirements-test.tx
 python -m pytest            # or, from the repo root: make test-fleet-api
 ```
 
-`requirements-auth.txt` installs metrolla-auth from the private EdgeAPI repo (branch
-`feat/relay-changes` until EdgeAPI PR #105 merges, then repin to `main` or a tag); with a local EdgeAPI checkout, `pip install <EdgeAPI>/packages/metrolla_auth`
-instead. CI runs the same tests in the `fleet-api tests` job when the `EDGEAPI_READ_TOKEN` repo
-secret is set.
+`requirements-auth.txt` installs metrolla-auth from the private EdgeAPI repo, pinned to a commit
+on `main` (bump it together with `fleet_api_metrolla_auth_ref`); with a local EdgeAPI checkout,
+`pip install <EdgeAPI>/packages/metrolla_auth` instead. CI runs the same tests in the
+`fleet-api tests` job when the `EDGEAPI_READ_TOKEN` repo secret is set.
 
 They run against a fake pine API (with the supervisor proxy and the builder's `/v3/build`), a
 fake VPN proxy with device EdgeAPIs behind it, and a fake imagemaker, all real HTTP servers on
@@ -702,7 +724,8 @@ real openBalena.
 | Change sits in `scheduled`, then `expired` | No window open: `GET /change-control` shows `open_now`, `frozen` and `next_window`. |
 | Image `failed` "no longer knows this build" | The imagemaker restarted (it keeps jobs in memory). Rebuild. |
 | Image build refused / imagemaker unreachable | `imagemaker_host` not set to the bridge gateway, or `imagemaker_token` doesn't match `IMAGEMAKER_TOKEN`. |
-| `registry_prune` fails | The registry container name or config path differs on this host: set `server.containers.registry` / `server.registry_config`. |
+| `registry_prune` fails | `could not look inside …`: the registry container name differs on this host, set `server.containers.registry`. `none of … exists` / `no registry binary`: set `server.registry_config` / `server.registry_bin`. |
+| `registry_prune` `timed out after 3600s` | A large store. The garbage collector was stopped (`result.stopped`); raise `server.operation_timeouts_s.registry_prune` and run it again. |
 
 ## Lab checklist (.183)
 
@@ -714,4 +737,4 @@ real openBalena.
 4. A change set with a canary wave on a labtestbed edge, `soak_min: 5`; break the canary's
    health and watch it halt and re-pin.
 5. `PATCH env` through the API, change the same var with the balena CLI, see it in `/drift`.
-6. `registry_prune` with the default dry run; check the container name and config path.
+6. `registry_prune` with the default dry run; `result.command` shows the binary and config it found.

@@ -4,7 +4,7 @@
 # metrolla-auth (private EdgeAPI repo): a package dir on the control node, or a git checkout.
 fleet_api_metrolla_auth_src: ""                 # e.g. ~/src/EdgeAPI/packages/metrolla_auth
 fleet_api_metrolla_auth_repo: https://github.com/Metrolla-Inc/EdgeAPI.git
-fleet_api_metrolla_auth_ref: feat/relay-changes   # EdgeAPI #105; repin to main or a tag once it merges
+fleet_api_metrolla_auth_ref: 71e546ba121a0b7668b6968c59ce26736851de8e   # EdgeAPI main; same pin as requirements-auth.txt
 fleet_api_github_token: ""                      # read access to EdgeAPI (vault it)
 
 # Secrets (vault these). The balena key: `balena api-key generate fleet-api` as an admin user.
