@@ -549,7 +549,11 @@ def create_app(settings: Optional[SettingsProvider] = None, auth_provider=None, 
             if not isinstance(params, dict):
                 raise EnvError('/params', 'must be an object')
             gate('op.server.%s' % op)
-            return server_ops.start(op, params, actor()), 202
+            started = server_ops.start(op, params, actor())
+            if started is None:
+                raise ChangeError(409, 'operation-running', 'Operation already running',
+                                  '%s %s is still running' % (op, server_ops.running(op)))
+            return started, 202
 
     @api.route('/server/operations/<string:op_id>')
     class ServerOperationOne(Resource):
@@ -576,6 +580,7 @@ def create_app(settings: Optional[SettingsProvider] = None, auth_provider=None, 
     if start_scheduler is None:
         start_scheduler = os.environ.get('FLEET_API_SCHEDULER', '1') != '0'
     if start_scheduler:
+        jobs.submit(server_ops.recover)
         _start_scheduler(changes, lambda: int(comp.settings()['rollout'].get('tick_s', 15)))
     return app
 

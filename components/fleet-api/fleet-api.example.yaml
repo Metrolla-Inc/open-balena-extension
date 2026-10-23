@@ -26,6 +26,8 @@ server:
     builder_dind: open-balena-builder-dind-1
     haproxy: open-balena-haproxy-1
     registry: open-balena-registry-1
+  # registry_bin / registry_config: found inside the registry container when empty.
+  # operation_timeouts_s: {registry_prune: 3600}   # else command_timeout_s (900)
 rollout:
   update_timeout_min: 30
   verify_settle_s: 60
