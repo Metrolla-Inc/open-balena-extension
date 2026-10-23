@@ -51,6 +51,9 @@ All notable changes to this project are documented here. The format follows
     self-apply a deploy. `GET /fleet/v1/changes/{id}` shows `approval_status` and `waiting_for`.
     New nullable columns `fleet_change_sets.author_permissions` and
     `fleet_change_approvals.permissions`, added on start to existing databases.
+- **Fleet API against a real openBalena:** pine refuses percent-encoded commas in OData queries
+  (`400 Malformed url` for `$select=id%2Cslug`), so every fleet, device and release read failed with
+  502 on the lab server. Queries now keep `,()'$;=` literal and percent-encode the rest.
 - **OpenAPI with sign-in on:** `/fleet/v1/swagger.json` and the `/fleet/v1/docs` page answer any signed-in
   caller. They were refused as undeclared routes, because metrolla_auth only exempts the OpenAPI views
   under a blueprint named `api`.

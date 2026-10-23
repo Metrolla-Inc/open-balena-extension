@@ -54,6 +54,13 @@ def ref_id(value) -> Optional[int]:
     return None
 
 
+def odata_query(params: dict) -> str:
+    """The query string for pine. Its OData parser refuses percent-encoded commas ("Malformed
+    url" for $select=id%2Cslug), so separators, parentheses and quotes stay literal; spaces and
+    anything else are percent-encoded."""
+    return '&'.join('%s=%s' % (k, quote(str(v), safe="$,()'/:@=;")) for k, v in params.items())
+
+
 def any_of(field: str, values: Iterable) -> str:
     vals = list(values)
     return '(' + ' or '.join('%s eq %s' % (field, lit(v)) for v in vals) + ')' if vals else 'false'
@@ -75,9 +82,9 @@ class BalenaClient:
     def _request(self, method: str, path: str, params=None, body=None, timeout=None) -> Any:
         if not self._key:
             raise BalenaError(0, 'no balena API key configured')
-        url = self.api_url + path
+        url = self.api_url + path + (('?' + odata_query(params)) if params else '')
         try:
-            r = self.http.request(method, url, params=params, json=body, timeout=timeout or self.timeout,
+            r = self.http.request(method, url, json=body, timeout=timeout or self.timeout,
                                   verify=self.verify, headers={'Authorization': 'Bearer ' + self._key})
         except requests.RequestException as e:
             raise BalenaError(0, '%s %s failed: %s' % (method, path, type(e).__name__))
