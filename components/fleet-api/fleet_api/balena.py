@@ -4,7 +4,7 @@ API key held by this service. The key is sent as a bearer token and never return
 Writes follow what balena-sdk does (v22, the CLI this repo's builder ships):
   release finalize  PATCH /v6/release(<id>) {is_final: true}
   fleet pin         PATCH /v6/application(<id>) {should_be_running__release, should_track_latest_release: false}
-  device pin        PATCH /v6/device(<id>) {is_pinned_on__release: <id> | null}
+  device pin        PATCH /v6/device(<id>) {should_be_running__release: <id> | null}
   restart service   POST /supervisor/v2/applications/<appId>/restart-service {deviceId, appId, data}
   reboot            POST /supervisor/v1/reboot {deviceId, data: {force}}
 """
@@ -17,7 +17,7 @@ import requests
 log = logging.getLogger('fleet_api')
 
 DEVICE_SELECT = ('id,uuid,device_name,is_online,last_connectivity_event,api_heartbeat_state,status,'
-                 'is_running__release,is_pinned_on__release,supervisor_version,os_version,belongs_to__application')
+                 'is_running__release,should_be_running__release,supervisor_version,os_version,belongs_to__application')
 FLEET_SELECT = 'id,app_name,slug,should_be_running__release,should_track_latest_release'
 RELEASE_SELECT = 'id,commit,status,is_final,semver,raw_version,created_at,end_timestamp,belongs_to__application'
 RELEASE_IMAGES = ('release_image($expand=image($select=id,status,content_hash,image_size;'
@@ -181,7 +181,7 @@ class BalenaClient:
         return rows[0] if len(rows) == 1 else None
 
     def pin_device(self, device_id: int, release_id: Optional[int]):
-        self.patch('device', {'is_pinned_on__release': release_id}, id=device_id)
+        self.patch('device', {'should_be_running__release': release_id}, id=device_id)
 
     # ── services and env vars ──
     def services(self, app_id: int) -> List[dict]:
@@ -237,7 +237,7 @@ def fleet_path(slug: str) -> str:
 def normalize_device(d: dict, commits: Optional[Dict[int, str]] = None, fleet_target: Optional[int] = None) -> dict:
     commits = commits or {}
     running = ref_id(d.get('is_running__release'))
-    pinned = ref_id(d.get('is_pinned_on__release'))
+    pinned = ref_id(d.get('should_be_running__release'))
     target = pinned or fleet_target
     return {
         'id': d.get('id'), 'uuid': d.get('uuid'), 'name': d.get('device_name'),
