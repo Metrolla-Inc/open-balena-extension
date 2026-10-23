@@ -4,7 +4,7 @@
 
 INVENTORY ?= ansible/inventory.ini
 
-.PHONY: help bootstrap ansible-config doctor deploy deploy-% secret-scan lint
+.PHONY: help bootstrap ansible-config doctor deploy deploy-% secret-scan lint test-fleet-api
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_%-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -31,6 +31,9 @@ lint: ## Lint shell + node + scan for secrets (what CI runs)
 	@if command -v shellcheck >/dev/null; then shellcheck -S error $$(git ls-files '*.sh') && echo "shellcheck  ok"; \
 	  else echo "shellcheck not installed — skipped (CI runs it)"; fi
 	@$(MAKE) --no-print-directory secret-scan
+
+test-fleet-api: ## Run the Fleet API tests (needs its requirements installed)
+	cd components/fleet-api && python3 -m pytest -q
 
 secret-scan: ## Fail if a real secret looks committed (placeholders/examples ignored)
 	@hits=$$(git grep --untracked -nIE '(BEGIN [A-Z ]*PRIVATE KEY|[0-9a-f]{24,})' \

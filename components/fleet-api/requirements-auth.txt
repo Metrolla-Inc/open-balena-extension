@@ -1,0 +1,3 @@
+# Shared sign-in, roles, tokens, audit and change control (metrolla_auth.change_control, EdgeAPI PR #105).
+# Pinned to the branch until it merges; then repin to main or a tag.
+metrolla-auth @ git+https://github.com/Metrolla-Inc/EdgeAPI.git@feat/relay-changes#subdirectory=packages/metrolla_auth

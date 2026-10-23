@@ -38,3 +38,28 @@ jobs:
       - name: Syntax-check the playbook
         working-directory: ansible
         run: ansible-playbook --syntax-check -i inventory.example.ini site.yml
+
+  fleet-api:
+    name: fleet-api tests
+    runs-on: ubuntu-latest
+    env:
+      # metrolla-auth lives in the private EdgeAPI repo; without a read token the job is skipped.
+      EDGEAPI_READ_TOKEN: ${{ secrets.EDGEAPI_READ_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Skip without EdgeAPI access
+        if: env.EDGEAPI_READ_TOKEN == ''
+        run: echo "::warning::EDGEAPI_READ_TOKEN is not set, so metrolla-auth can't be installed; fleet-api tests skipped"
+      - name: Install
+        if: env.EDGEAPI_READ_TOKEN != ''
+        working-directory: components/fleet-api
+        run: |
+          git config --global url."https://x-access-token:${EDGEAPI_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
+          pip install -r requirements.txt -r requirements-auth.txt -r requirements-test.txt
+      - name: pytest
+        if: env.EDGEAPI_READ_TOKEN != ''
+        working-directory: components/fleet-api
+        run: python -m pytest -q

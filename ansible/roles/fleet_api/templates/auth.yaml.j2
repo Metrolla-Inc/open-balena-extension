@@ -1,0 +1,4 @@
+# Managed by Ansible (roles/fleet_api): the metrolla_auth sections for the Fleet API.
+auth: {{ fleet_api_auth | to_json }}
+access: {{ fleet_api_access | to_json }}
+site: {{ {'id': fleet_api_site_id} | to_json }}

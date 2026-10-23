@@ -1,0 +1,17 @@
+# /etc/fleet-api/auth.yaml — the metrolla_auth `auth`, `access` and `site` sections, the same
+# switches as EdgeAPI. Off by default: every caller is anonymous with anonymous_role.
+auth:
+  enabled: false
+  anonymous_role: site_admin
+  # While sign-in is off, only these source networks (X-Real-IP from haproxy) get in.
+  allow_networks: [127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
+  # static_tokens:
+  #   enabled: true
+  #   tokens:
+  #     - { user_id: release-pipeline, token_sha256: "<metrollactl token-hash>", role: change_pipeline }
+  #     - { user_id: ops, token_sha256: "<…>", role: fleet_release_manager }
+# access:
+#   bindings:
+#     - { group: fleet-admins, role: fleet_release_manager }
+site:
+  id: openbalena-lab

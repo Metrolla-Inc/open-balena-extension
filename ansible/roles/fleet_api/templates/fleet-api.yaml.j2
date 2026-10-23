@@ -1,0 +1,23 @@
+# Managed by Ansible (roles/fleet_api). See docs/fleet-api.md.
+balena:
+  api_url: https://api.{{ dns_tld }}
+  api_key_file: /run/secrets/balena_api_key
+  verify: {{ fleet_api_tls_verify | to_json }}
+builder:
+  mode: {{ fleet_api_builder_mode }}
+  url: http://builder:80
+git:
+  repo_base: {{ fleet_api_repo_base | to_json }}
+  allowed_repos: {{ fleet_api_allowed_repos | to_json }}
+  token_file: /run/secrets/git_token
+reach:
+  mode: {{ fleet_api_reach_mode }}
+  proxy_host: vpn
+  proxy_port: 3128
+  device_token_file: /run/secrets/device_token
+  device_user: {{ fleet_api_device_user | to_json }}
+imagemaker:
+  url: {{ fleet_api_imagemaker_url | to_json }}
+  token_file: /run/secrets/imagemaker_token
+webhooks: {{ fleet_api_webhooks | to_json }}
+change_control: {{ fleet_api_change_control | to_json }}

@@ -8,6 +8,8 @@
 !.env.example
 
 # Build artifacts / images
+components/fleet-api/vendor/*
+!components/fleet-api/vendor/.gitkeep
 *.img
 *.img.gz
 *.zip
@@ -24,3 +26,4 @@ ansible/group_vars/all.yml
 .DS_Store
 *.swp
 __pycache__/
+.pytest_cache/

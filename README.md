@@ -49,11 +49,13 @@ you don't have to learn it the hard way.
 | **[Imagemaker](components/imagemaker/)** | Web UI + scripts to build ready-to-flash, fleet-preconfigured device images | homemade |
 | **[Custom haproxy](components/haproxy/)** | Hand-written static ingress config (routes the builder + extras) | homemade |
 | **[Admin dashboard](components/admin/)** | Web UI / device terminal (the community [open-balena-ui](https://github.com/ob-community/open-balena-ui) stack) | third-party |
+| **[Fleet Control API](components/fleet-api/)** | `/fleet/v1`: build + finalize releases, wave rollouts under change control, env, devices, images, drift, server upkeep ([docs](docs/fleet-api.md)) | homemade, opt-in |
 
 Plus **[Ansible playbooks](ansible/)** to deploy core + all extensions from scratch, helper
 scripts (`make bootstrap` / `make doctor`), and **[docs](docs/)**:
 [architecture map](docs/architecture.md) · [DNS-split explainer](docs/dns-tld-split.md) ·
-[public ingress & Cloudflare](docs/public-ingress.md) · [registry edge cache (R2)](docs/registry-edge-cache.md).
+[public ingress & Cloudflare](docs/public-ingress.md) · [registry edge cache (R2)](docs/registry-edge-cache.md) ·
+[Fleet Control API](docs/fleet-api.md).
 
 ## How it fits together
 
@@ -70,6 +72,9 @@ Three independent `docker compose` projects share one network, behind a single h
         │ builds flashable, fleet-preconfigured images
    imagemaker (systemd service + web UI on :8090)
 ```
+
+The optional [Fleet Control API](docs/fleet-api.md) is a fourth project (`openbalena-fleet`) on the
+same network, behind a `fleet.` route; it is off unless `deploy_fleet_api: true`.
 
 Core openBalena is **unmodified upstream** — everything here sits *around* it (a compose override
 plus a replacement haproxy config). Full picture: **[docs/architecture.md](docs/architecture.md)**.
@@ -166,7 +171,9 @@ invariants, and gotchas so AI coding assistants can work on it safely. Point you
 ## Contributing
 
 PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). CI runs shell/Node lint, a secret scan, and
-an Ansible syntax check on every PR; `make lint` runs the same checks locally.
+an Ansible syntax check on every PR; `make lint` runs the same checks locally. The Fleet API tests
+run with `make test-fleet-api` (CI runs them when the `EDGEAPI_READ_TOKEN` secret is set). Changes
+are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

@@ -1,0 +1,37 @@
+# Fleet Control API — own compose project (openbalena-fleet) on the shared openBalena network,
+# like admin/ and delta/. Required env: DNS_TLD, INSTALL_ROOT. See ../../docs/fleet-api.md.
+#
+# It holds the balena API key (secrets/balena_api_key) and the docker socket (server
+# operations), so treat it like the rest of open-balena_default: trusted, never published.
+services:
+  fleet-api:
+    image: metrolla-fleet-api:local
+    restart: unless-stopped
+    environment:
+      DNS_TLD: ${DNS_TLD}
+      FLEET_API_CONFIG: /etc/fleet-api/fleet-api.yaml
+      METROLLA_AUTH_CONFIG: /etc/fleet-api/auth.yaml
+      FLEET_API_DATA_DIR: /data
+      LOG_LEVEL: ${FLEET_API_LOG_LEVEL:-INFO}
+    volumes:
+      - fleet-api-data:/data
+      - ${INSTALL_ROOT:-/opt/openbalena}/fleet-api/config:/etc/fleet-api:ro
+      - ${INSTALL_ROOT:-/opt/openbalena}/fleet-api/secrets:/run/secrets:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - certs-data:/certs:ro
+    # The imagemaker is a host systemd service; reach it on the docker bridge gateway.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      open-balena_default:
+        aliases: [fleet-api]
+
+networks:
+  open-balena_default:
+    external: true
+
+volumes:
+  fleet-api-data: {}
+  certs-data:
+    external: true
+    name: open-balena_certs-data

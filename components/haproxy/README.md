@@ -16,6 +16,9 @@ services:
   `http` (:80) and `https` (:444) frontends.
 - Adds `backend builder-backend` with **`timeout server 3600s`** — builds stream for minutes and
   would otherwise be cut by the default `timeout server 63s`.
+- Adds the same pair for **`fleet.`** → `backend fleet-backend` (the [Fleet Control API](../fleet-api/),
+  `fleet-api:80`), which sets `X-Real-IP` from the client address. It answers 503 until the
+  fleet-api project is deployed.
 
 haproxy is the **single ingress** for the whole instance. Treat edits with care:
 
@@ -37,4 +40,4 @@ Always keep a timestamped backup (`cp haproxy.cfg haproxy.cfg.bak-$(date +%s)`);
 restore it and `docker compose restart haproxy`.
 
 > This file tracks a specific openBalena version's routing. If you upgrade core and the generated
-> config changes, re-derive from the new template and re-apply the two `builder` additions.
+> config changes, re-derive from the new template and re-apply the `builder` and `fleet` additions.

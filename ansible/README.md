@@ -31,6 +31,7 @@ ansible-playbook -i inventory.ini site.yml --tags imagemaker
 | `imagemaker` | `imagemaker` | Install the imagemaker service + scripts |
 | `admin` | `admin` | Bring up the community dashboard project |
 | `delta` | `delta` | Bring up the delta project |
+| `fleet_api` | `fleet_api` | Build + start the [Fleet Control API](../docs/fleet-api.md) (off unless `deploy_fleet_api: true`) |
 
 ## Notes
 - The `builder` role reads `TOKEN_AUTH_BUILDER_TOKEN` from the running API automatically (it's
