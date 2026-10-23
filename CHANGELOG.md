@@ -51,6 +51,9 @@ All notable changes to this project are documented here. The format follows
     self-apply a deploy. `GET /fleet/v1/changes/{id}` shows `approval_status` and `waiting_for`.
     New nullable columns `fleet_change_sets.author_permissions` and
     `fleet_change_approvals.permissions`, added on start to existing databases.
+- **OpenAPI with sign-in on:** `/fleet/v1/swagger.json` and the `/fleet/v1/docs` page answer any signed-in
+  caller. They were refused as undeclared routes, because metrolla_auth only exempts the OpenAPI views
+  under a blueprint named `api`.
 - **Image and compose project:** `components/fleet-api/Dockerfile` builds `metrolla-fleet-api:local`
   (Python 3.12, gunicorn with **one** worker and 8 threads because the change scheduler runs in the
   process, static docker CLI for server operations, healthcheck on `/fleet/v1/ping`).
