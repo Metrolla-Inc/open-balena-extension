@@ -1,3 +1,3 @@
-# Shared sign-in, roles, tokens, audit and change control (metrolla_auth.change_control, EdgeAPI PR #105).
-# Pinned to the branch until it merges; then repin to main or a tag.
-metrolla-auth @ git+https://github.com/Metrolla-Inc/EdgeAPI.git@feat/relay-changes#subdirectory=packages/metrolla_auth
+# Shared sign-in, roles, tokens, audit and change control (metrolla_auth.change_control).
+# Pinned to an EdgeAPI main commit; keep in step with fleet_api_metrolla_auth_ref (ansible/roles/fleet_api).
+metrolla-auth @ git+https://github.com/Metrolla-Inc/EdgeAPI.git@71e546ba121a0b7668b6968c59ce26736851de8e#subdirectory=packages/metrolla_auth

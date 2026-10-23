@@ -37,7 +37,7 @@
     repo: "{{ fleet_api_metrolla_auth_repo }}"
     dest: "{{ install_root }}/fleet-api/edgeapi-src"
     version: "{{ fleet_api_metrolla_auth_ref }}"
-    depth: 1
+    depth: "{{ omit if fleet_api_metrolla_auth_ref is match('^[0-9a-f]{40}$') else 1 }}"   # shallow only for a branch or tag
     force: true
   environment:
     GIT_CONFIG_COUNT: "{{ '1' if fleet_api_github_token else '0' }}"

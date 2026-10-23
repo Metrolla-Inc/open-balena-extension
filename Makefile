@@ -38,6 +38,8 @@ test-fleet-api: ## Run the Fleet API tests (needs its requirements installed)
 secret-scan: ## Fail if a real secret looks committed (placeholders/examples ignored)
 	@hits=$$(git grep --untracked -nIE '(BEGIN [A-Z ]*PRIVATE KEY|[0-9a-f]{24,})' \
 	  -- . ':!*.example' ':!.gitignore' ':!docs/*' ':!Makefile' ':!scripts/*' ':!CONTRIBUTING.md' \
-	  | grep -vE '\{\{|\$$\{' || true); \
+	  | grep -vE '\{\{|\$$\{' \
+	  | sed -E 's/\.git@[0-9a-f]{40}#/.git@<commit>#/; s/_ref: [0-9a-f]{40}/_ref: <commit>/' \
+	  | grep -E 'PRIVATE KEY|[0-9a-f]{24,}' || true); \
 	if [ -n "$$hits" ]; then echo "$$hits"; echo "^ potential secret — remove before commit"; exit 1; \
 	else echo "clean"; fi

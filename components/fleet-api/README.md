@@ -17,6 +17,5 @@ python -m pytest
 ```
 
 `requirements-auth.txt` installs metrolla-auth (sign-in, roles, audit and the change-control rules in
-`metrolla_auth.change_control`) from the private EdgeAPI repo (branch `feat/relay-changes` until PR #105
-merges); for image builds put the package in `vendor/metrolla_auth`
+`metrolla_auth.change_control`) from the private EdgeAPI repo (pinned to a commit on `main`); for image builds put the package in `vendor/metrolla_auth`
 or pass a token as the `github_token` build secret.
