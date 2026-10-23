@@ -1,5 +1,6 @@
 """Fleet change-set lifecycle through the API: plan-hash approvals, separation of duties,
-windows, freezes, expiry, staleness, signatures, idempotency, gated direct writes."""
+approvals counted per item from approvers holding its permission, windows, freezes, expiry,
+staleness, signatures, idempotency, gated direct writes."""
 from datetime import datetime, timezone
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -42,7 +43,9 @@ def test_two_approvals_bound_to_the_plan_hash_and_author_cannot_approve(world):
     assert r.status_code == 403 and r.json['type'].endswith('author-cannot-approve')
     r = _approve(world, c['id'], 'amy', 'sha256:' + '0' * 64)
     assert r.status_code == 409 and r.json['type'].endswith('plan-hash-mismatch')
-    assert _approve(world, c['id'], 'amy', h).json['state'] == 'planned'
+    a = _approve(world, c['id'], 'amy', h).json
+    assert a['state'] == 'planned' and a['approvals'][0]['permissions'] == ['fleet:deploy']
+    assert a['waiting_for'] == [{'class': 'release.deploy', 'permission': 'fleet:deploy', 'waiting': 1}]
     assert _approve(world, c['id'], 'amy', h).status_code == 409
     r = _approve(world, c['id'], 'bob', h)
     assert r.status_code == 200 and r.json['state'] == 'applying'
@@ -54,7 +57,7 @@ def test_window_schedules_then_applies_and_a_missed_window_expires(world):
     world.start(change_control={'timezone': 'America/New_York', 'windows': WINDOWS,
                                 'policy': {'env': {'approvals': 0, 'window': True}}}, auth=auth_on())
     # 2026-11-03 15:00Z is Tue 10:00 EST: the Tuesday window is over; next is Thu 02:00 EST.
-    c = _post(world, [_env_item()]).json
+    c = _post(world, [_env_item()], who='root').json
     assert c['state'] == 'scheduled' and c['scheduled_for'] == '2026-11-05T07:00:00+00:00'
     world.tick(minutes=60)
     assert world.change(c['id'])['state'] == 'scheduled'
@@ -63,10 +66,10 @@ def test_window_schedules_then_applies_and_a_missed_window_expires(world):
     assert world.change(c['id'])['state'] == 'applied'
     assert world.balena.env('application_environment_variable', 'application', world.fleet['id']) == {'MODE': 'new'}
 
-    late = _post(world, [_env_item('later')]).json             # Thu 07:30Z: window open now
+    late = _post(world, [_env_item('later')], who='root').json             # Thu 07:30Z: window open now
     assert late['state'] == 'applied'
     world.clock.now = datetime(2026, 11, 5, 9, 30, tzinfo=timezone.utc)    # Thu 04:30 EST, closed
-    missed = _post(world, [_env_item('missed')]).json
+    missed = _post(world, [_env_item('missed')], who='root').json
     assert missed['scheduled_for'] == '2026-11-10T07:00:00+00:00'
     world.clock.now = datetime(2026, 11, 10, 9, 30, tzinfo=timezone.utc)   # scheduler was down all window
     world.tick()
@@ -94,7 +97,7 @@ def test_freeze_beats_window_and_emergency_bypasses_both(world):
         'timezone': 'America/New_York', 'windows': WINDOWS, 'emergency': {'approvals': 2},
         'freezes': [{'start': '2026-11-04T00:00:00-05:00', 'end': '2026-11-09T00:00:00-05:00', 'reason': 'peak'}],
         'policy': {'env': {'approvals': 0, 'window': True}}}, auth=auth_on())
-    c = _post(world, [_env_item()]).json
+    c = _post(world, [_env_item()], who='root').json
     assert c['scheduled_for'] == '2026-11-10T07:00:00+00:00', 'Thursday is frozen'
     cc_view = world.client.get('/fleet/v1/change-control', headers=as_('root')).json
     assert cc_view['schedule']['next_window']['start'] == '2026-11-10T02:00:00-05:00'
@@ -129,7 +132,7 @@ def test_scheduled_change_goes_stale_when_the_fleet_moves_before_its_window(worl
     world.start(change_control={'timezone': 'America/New_York', 'windows': WINDOWS,
                                 'policy': {'release.deploy': {'approvals': 0, 'window': True}}}, auth=auth_on())
     r2, r3 = world.balena.release(world.fleet), world.balena.release(world.fleet)
-    c = _post(world, [_deploy(r2['id'])]).json
+    c = _post(world, [_deploy(r2['id'])], who='root').json
     assert c['state'] == 'scheduled'
     world.balena.pin_fleet(world.fleet, r3)
     world.clock.now = datetime(2026, 11, 5, 7, 30, tzinfo=timezone.utc)
@@ -208,3 +211,59 @@ def test_validation_errors_point_at_the_item(world):
     assert r.status_code == 422 and r.json['errors'][0]['pointer'] == '/items/0/fleet'
     r = world.client.post('/fleet/v1/changes', json={'items': [_env_item()], 'window': 'tomorrow-ish'})
     assert r.status_code == 422 and r.json['errors'][0]['pointer'] == '/window'
+
+
+def test_a_pipeline_author_cannot_self_apply_what_it_could_not_write_directly(world):
+    world.start(change_control={'policy': {'release.deploy': {'approvals': 0}}}, auth=auth_on())
+    r2 = world.balena.release(world.fleet)
+    # site_admin holds fleet:deploy: no approval needed, it applies at once
+    own = _post(world, [_deploy(r2['id'])], who='root').json
+    assert own['state'] == 'applying' and own['waiting_for'] == []
+
+    r3 = world.balena.release(world.fleet)
+    c = _post(world, [_deploy(r3['id']), _env_item()]).json             # change_pipeline: change:author only
+    assert c['state'] == 'planned' and c['policy']['required_approvals'] == 1
+    assert c['plan']['required_permissions'] == [
+        {'class': 'release.deploy', 'permission': 'fleet:deploy', 'approvals': 1},
+        {'class': 'env', 'permission': 'fleet:env', 'approvals': 1}]
+    assert c['waiting_for'] == [{'class': 'release.deploy', 'permission': 'fleet:deploy', 'waiting': 1},
+                                {'class': 'env', 'permission': 'fleet:env', 'waiting': 1}]
+    assert world.client.post('/fleet/v1/changes/%s/apply' % c['id'], headers=as_('ci')).status_code == 409
+
+    # change:approve without fleet:deploy or fleet:env counts toward nothing: refused
+    r = _approve(world, c['id'], 'cal', c['plan_hash'])
+    assert r.status_code == 403 and r.json['type'].endswith('approver-lacks-permission')
+    assert 'fleet:deploy' in r.json['detail'] and 'fleet:env' in r.json['detail']
+    c = world.change(c['id'])
+    assert c['state'] == 'planned' and c['approvals'] == []
+
+    # one approver holding both permissions satisfies both items
+    c = _approve(world, c['id'], 'amy', c['plan_hash']).json
+    assert c['state'] == 'approved' and c['waiting_for'] == [], "approved, queued behind root's rollout"
+    assert c['approvals'][0]['permissions'] == ['fleet:deploy', 'fleet:env']
+    assert [s['approvers'] for s in c['approval_status']] == [['static:amy'], ['static:amy']]
+
+
+def test_approvals_count_per_item_only_from_approvers_holding_its_permission(world):
+    world.start(change_control={'policy': {'release.deploy': {'approvals': 2}, 'env': {'approvals': 1}}},
+                auth=auth_on())
+    r2 = world.balena.release(world.fleet)
+    c = _post(world, [_deploy(r2['id']), _env_item()], who='root').json
+    assert [(x['class'], x['waiting']) for x in c['waiting_for']] == [('release.deploy', 2), ('env', 1)]
+    assert _approve(world, c['id'], 'cal', c['plan_hash']).status_code == 403
+    c = _approve(world, c['id'], 'amy', c['plan_hash']).json
+    assert c['state'] == 'planned'
+    assert c['waiting_for'] == [{'class': 'release.deploy', 'permission': 'fleet:deploy', 'waiting': 1}]
+    assert _approve(world, c['id'], 'bob', c['plan_hash']).json['state'] == 'applying'
+
+
+def test_an_emergency_from_a_pipeline_needs_one_qualifying_approval(world):
+    world.start(change_control={'emergency': {'approvals': 0}}, auth=auth_on())
+    e = _post(world, [_env_item('hotfix')], emergency=True, reason='gate stuck open').json
+    assert e['state'] == 'planned' and e['policy']['required_approvals'] == 1
+    assert e['waiting_for'] == [{'class': 'env', 'permission': 'fleet:env', 'waiting': 1}]
+    assert _approve(world, e['id'], 'cal', e['plan_hash']).status_code == 403
+    assert _approve(world, e['id'], 'amy', e['plan_hash']).json['state'] == 'applied'
+
+    own = _post(world, [_env_item('hotfix2')], who='root', emergency=True, reason='gate stuck open').json
+    assert own['state'] == 'applied', 'an author holding fleet:env needs no approval with emergency.approvals 0'

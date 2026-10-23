@@ -1,4 +1,5 @@
-"""Small pieces: the builder stream parser, the CLI builder fallback, webhook signatures."""
+"""Small pieces: the builder stream parser, the CLI builder fallback, webhook signatures, item
+permissions."""
 import hashlib
 import hmac
 import json
@@ -9,6 +10,7 @@ from datetime import datetime
 from metrolla_auth import change_control as cc
 
 from fleet_api.builder import CliBuilder, iter_json_array
+from fleet_api.changes import class_permission
 from fleet_api.jobs import InlineJobs
 from fleet_api.webhooks import Notifier
 
@@ -96,3 +98,25 @@ def test_example_configs_parse():
     with open(os.path.join(here, 'auth.example.yaml')) as fh:
         auth = settings_from_document(yaml.safe_load(fh), {})
     assert auth.auth.enabled is False and auth.auth.anonymous_role == 'site_admin'
+
+
+def test_each_fleet_item_class_maps_to_the_permission_a_direct_write_needs():
+    assert [class_permission(c) for c in ('release.build', 'release.deploy', 'env', 'site.change')] == \
+        ['fleet:release', 'fleet:deploy', 'fleet:env', 'change:author']
+    assert class_permission('op.device.reboot') == 'fleet:device'
+    assert class_permission('op.server.registry_prune') == 'system:admin'
+    assert class_permission('something.new') == 'system:admin'
+
+
+def test_permission_columns_are_added_to_tables_made_before_them(tmp_path):
+    from sqlalchemy import inspect, text
+    from fleet_api.models import init_db, make_engine
+    engine = make_engine('sqlite:///%s' % (tmp_path / 'old.db'))
+    init_db(engine)
+    with engine.begin() as conn:
+        conn.execute(text('ALTER TABLE fleet_change_sets DROP COLUMN author_permissions'))
+        conn.execute(text('ALTER TABLE fleet_change_approvals DROP COLUMN permissions'))
+    init_db(engine)
+    insp = inspect(engine)
+    assert 'author_permissions' in {c['name'] for c in insp.get_columns('fleet_change_sets')}
+    assert 'permissions' in {c['name'] for c in insp.get_columns('fleet_change_approvals')}

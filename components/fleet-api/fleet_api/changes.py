@@ -6,6 +6,12 @@ The generic rules (state machine, plan hash, approvals, windows, freezes, signat
 from metrolla_auth.change_control; this module only knows how to plan, apply, verify and undo
 fleet items.
 
+Authority comes from approvals, not from the author: authoring needs change:author only. Each
+resource class a change touches records the permission a direct write of it needs
+(plan.required_permissions); an approval counts toward a class only if the approver held that
+permission, and a class whose policy needs no approval takes the author's own permission or
+one qualifying approval, so a change_pipeline token can't self-apply a deploy.
+
 Base state (what makes a plan stale): per fleet, its target release when a deploy item rolls
 it, the env snapshot of every scope an env.patch item touches, and the release a deploy item
 names. If any of it
@@ -38,6 +44,10 @@ log = logging.getLogger('fleet_api')
 OPS = ('release.build', 'env.patch', 'release.deploy', 'site.change')
 RESOURCE_CLASS = {'release.build': 'release.build', 'env.patch': 'env', 'release.deploy': 'release.deploy',
                   'site.change': 'site.change'}
+# The permission a direct write of each resource class needs (parent classes apply: op.device.reboot
+# -> op.device). A site change's own items are checked again by the device EdgeAPI's rules.
+PERMISSION = {'release.build': 'fleet:release', 'release.deploy': 'fleet:deploy', 'env': 'fleet:env',
+              'site.change': 'change:author', 'op.device': 'fleet:device', 'op.server': 'system:admin'}
 BUILT = '@built'
 _LOCK = threading.RLock()
 
@@ -55,6 +65,34 @@ def _invalid(pointer: str, message: str) -> ChangeError:
 
 def _jsonable(value):
     return json.loads(json.dumps(value, default=str))
+
+
+def class_permission(resource_class: str) -> str:
+    name = resource_class
+    while name:
+        if name in PERMISSION:
+            return PERMISSION[name]
+        name = name.rpartition('.')[0]
+    return 'system:admin'
+
+
+def requirements(cfg: cc.ChangeControlConfig, items: List[dict], emergency: bool,
+                 author_permissions) -> List[cc.Requirement]:
+    """One requirement per resource class the items touch, in item order."""
+    held = set(author_permissions or ())
+    out = []
+    for c in dict.fromkeys(RESOURCE_CLASS[it['op']] for it in items):
+        need = class_permission(c)
+        out.append(cc.requirement(cfg, c, need, cfg.policy_for(c), emergency, need in held))
+    return out
+
+
+def _requirements(change: ChangeSet) -> List[cc.Requirement]:
+    return [cc.Requirement.from_dict(r) for r in (change.plan or {}).get('required_permissions') or ()]
+
+
+def _approval_tuples(approvals) -> List[tuple]:
+    return [(a.approver_id, a.plan_hash, a.permissions or ()) for a in approvals]
 
 
 class FleetChanges:
@@ -179,7 +217,8 @@ class FleetChanges:
         rows = EnvStore(self.fleet.balena()).read(fleet, device, service)
         return value_sha256('\n'.join('%s\t%s' % (k, rows[k].get('value')) for k in sorted(rows)))
 
-    def _plan(self, items: List[dict], fleets: Dict[str, dict], base: dict, policy: cc.Policy, required: int) -> dict:
+    def _plan(self, items: List[dict], fleets: Dict[str, dict], base: dict, policy: cc.Policy, required: int,
+              reqs: List[cc.Requirement]) -> dict:
         out = []
         p = self.fleet.patterns
         for i, it in enumerate(items):
@@ -211,6 +250,7 @@ class FleetChanges:
                                             'signed': bool(it['change'].get('signature'))}
                 out.append(entry)
         return {'items': out, 'policy': policy.to_dict(), 'required_approvals': required,
+                'required_permissions': [r.to_dict() for r in reqs],
                 'secret_names': sorted({n for it in items if it['op'] == 'env.patch' for n in it['set']
                                         if is_secret(n, p)})}
 
@@ -254,15 +294,18 @@ class FleetChanges:
             fleets = self._resolve(items)
             base = self._base(items, fleets)
             policy = cfg.combined_policy(RESOURCE_CLASS[it['op']] for it in items)
-            required = cc.required_approvals(cfg, policy, emergency)
-            plan = self._plan(items, fleets, base, policy, required)
+            author_permissions = sorted(principal.permissions)
+            reqs = requirements(cfg, items, emergency, author_permissions)
+            required = max([r.approvals for r in reqs] or [0])
+            plan = self._plan(items, fleets, base, policy, required, reqs)
             now = self.clock()
             change = ChangeSet(
                 id=new_id('fchg'), title=str(body.get('title') or '')[:300] or None,
                 ticket=str(body.get('ticket') or '')[:120] or None, state=cc.DRAFT,
                 items=items, fleets=sorted(f['slug'] for f in fleets.values()), base=base, plan=plan,
                 plan_hash=cc.plan_hash(base, items), policy=dict(policy.to_dict(), required_approvals=required),
-                author_id=principal.sub, author_kind=principal.kind, signature_kid=kid, emergency=emergency,
+                author_id=principal.sub, author_kind=principal.kind, author_permissions=author_permissions,
+                signature_kid=kid, emergency=emergency,
                 reason=body.get('reason'), window=str(window) if window else 'next', not_before=not_before,
                 progress=None, idempotency_key=idempotency_key, created_at=now, updated_at=now)
             db = self.session_factory()
@@ -327,13 +370,17 @@ class FleetChanges:
         if brief:
             return out
         approvals = self._approvals(c.id)
+        status = cc.approval_status(_requirements(c), _approval_tuples(approvals), c.plan_hash)
         out.update({
             'items': items, 'plan': c.plan, 'policy': c.policy, 'reason': c.reason, 'window': c.window,
             'not_before': iso(c.not_before), 'signature_kid': c.signature_kid, 'applied_at': iso(c.applied_at),
             'finished_at': iso(c.finished_at), 'verify_result': c.verify_result,
-            'approvals': [{'approver': a.approver_id, 'plan_hash': a.plan_hash, 'comment': a.comment,
-                           'approved_at': iso(a.approved_at), 'counts': a.plan_hash == c.plan_hash}
-                          for a in approvals],
+            'approvals': [{'approver': a.approver_id, 'plan_hash': a.plan_hash, 'permissions': a.permissions or [],
+                           'comment': a.comment, 'approved_at': iso(a.approved_at),
+                           'counts': a.plan_hash == c.plan_hash} for a in approvals],
+            'approval_status': status,
+            'waiting_for': [{'class': x['class'], 'permission': x['permission'], 'waiting': x['waiting']}
+                            for x in status if x['waiting']],
             'progress': self._public_progress(c.progress), 'history': self._history(c.id),
         })
         return out
@@ -415,9 +462,13 @@ class FleetChanges:
 
     # ── approvals and manual transitions ──
     def _maybe_approved(self, change: ChangeSet, actor: Optional[str]) -> ChangeSet:
-        required = (change.policy or {}).get('required_approvals', 0)
-        pairs = [(a.approver_id, a.plan_hash) for a in self._approvals(change.id)]
-        if change.state == cc.PLANNED and cc.approvals_met(pairs, change.plan_hash, required):
+        approvals = self._approvals(change.id)
+        if 'required_permissions' in (change.plan or {}):
+            met = cc.requirements_met(_requirements(change), _approval_tuples(approvals), change.plan_hash)
+        else:       # planned before approvals counted per resource class
+            met = cc.approvals_met([(a.approver_id, a.plan_hash) for a in approvals], change.plan_hash,
+                                   (change.policy or {}).get('required_approvals', 0))
+        if change.state == cc.PLANNED and met:
             change = self._transition(change, cc.APPROVED, actor)
             change = self.advance(change, self.clock())
         return change
@@ -433,12 +484,15 @@ class FleetChanges:
         with _LOCK:
             change = self.get(change_id)
             approved_by = [a.approver_id for a in self._approvals(change_id) if a.plan_hash == change.plan_hash]
+            reqs = _requirements(change)
+            held = cc.held_permissions(reqs, principal.can)
             try:
                 cc.check_approval(change.state, change.author_id, principal.sub, change.plan_hash, plan_hash,
                                   approved_by)
+                cc.check_approver(reqs, held)
             except cc.ApprovalError as e:
-                raise ChangeError(409 if e.code != 'author-cannot-approve' else 403, e.code, 'Approval refused',
-                                  e.detail)
+                raise ChangeError(403 if e.code in ('author-cannot-approve', 'approver-lacks-permission') else 409,
+                                  e.code, 'Approval refused', e.detail)
             if self._base_moved(change):
                 self._transition(change, cc.STALE, principal.sub, {'reason': 'base state moved'})
                 raise ChangeError(409, 'stale', 'The plan is stale',
@@ -446,11 +500,11 @@ class FleetChanges:
             db = self.session_factory()
             try:
                 db.add(ChangeApproval(change_id=change_id, approver_id=principal.sub, plan_hash=plan_hash,
-                                      comment=comment, approved_at=self.clock()))
+                                      permissions=held, comment=comment, approved_at=self.clock()))
                 db.commit()
             finally:
                 db.close()
-            self._event(change, change.state, principal.sub, {'approved': plan_hash})
+            self._event(change, change.state, principal.sub, {'approved': plan_hash, 'permissions': held})
             change = self._maybe_approved(self.get(change_id), principal.sub)
             return self.to_dict(change)
 
@@ -477,7 +531,9 @@ class FleetChanges:
             fleets = self._resolve(change.items)
             base = self._base(change.items, fleets)
             policy = cc.Policy(change.policy['approvals'], change.policy['window'])
-            plan = self._plan(change.items, fleets, base, policy, change.policy['required_approvals'])
+            reqs = _requirements(change) if 'required_permissions' in (change.plan or {}) else \
+                requirements(self.cfg, change.items, bool(change.emergency), change.author_permissions)
+            plan = self._plan(change.items, fleets, base, policy, change.policy['required_approvals'], reqs)
             new_hash = cc.plan_hash(base, change.items)
             change = self._save(change, base=base, plan=plan, plan_hash=new_hash)
             if change.state != cc.PLANNED:

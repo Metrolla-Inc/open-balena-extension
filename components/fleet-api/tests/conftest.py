@@ -141,9 +141,10 @@ def world(tmp_path, repos):
 
 
 TOKENS = {name: 'mtl_st_%s_%s' % (name, uuid.uuid4().hex) for name in
-          ('ci', 'amy', 'bob', 'viewer', 'rm', 'root')}
-ROLES = {'ci': 'change_pipeline', 'amy': 'change_approver', 'bob': 'change_approver', 'viewer': 'fleet_viewer',
-         'rm': 'fleet_release_manager', 'root': 'site_admin'}
+          ('ci', 'amy', 'bob', 'cal', 'viewer', 'rm', 'root')}
+# amy and bob approve with every fleet permission; cal holds change:approve but no fleet permission.
+ROLES = {'ci': 'change_pipeline', 'amy': 'site_admin', 'bob': 'site_admin', 'cal': 'change_approver',
+         'viewer': 'fleet_viewer', 'rm': 'fleet_release_manager', 'root': 'site_admin'}
 
 
 def auth_on():

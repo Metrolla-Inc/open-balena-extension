@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (Boolean, Column, DateTime, Index, Integer, JSON, Text, TypeDecorator, UniqueConstraint,
-                        create_engine, event)
+                        create_engine, event, inspect, text)
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -96,6 +96,7 @@ class ChangeSet(Base):
     policy = Column(JSON)
     author_id = Column(Text, nullable=False)
     author_kind = Column(Text)
+    author_permissions = Column(JSON)           # what the author held when authoring (sorted)
     signature_kid = Column(Text)
     emergency = Column(Boolean, default=False)
     reason = Column(Text)
@@ -121,6 +122,7 @@ class ChangeApproval(Base):
     change_id = Column(Text, primary_key=True)
     approver_id = Column(Text, primary_key=True)
     plan_hash = Column(Text, primary_key=True)
+    permissions = Column(JSON)                  # the plan's required permissions the approver held
     comment = Column(Text)
     approved_at = Column(UTCDateTime(), default=utcnow)
 
@@ -191,8 +193,17 @@ def make_engine(url: str):
     return engine
 
 
+# Columns added after the tables first shipped: (table, column), added on start when missing.
+ADDED_COLUMNS = (('fleet_change_sets', 'author_permissions'), ('fleet_change_approvals', 'permissions'))
+
+
 def init_db(engine):
     from metrolla_auth.models import create_tables
     Base.metadata.create_all(engine)
+    insp = inspect(engine)
+    for table, column in ADDED_COLUMNS:
+        if column not in {c['name'] for c in insp.get_columns(table)}:
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE %s ADD COLUMN %s JSON' % (table, column)))
     create_tables(engine)
     return sessionmaker(bind=engine, expire_on_commit=False)
