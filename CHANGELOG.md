@@ -19,8 +19,8 @@ All notable changes to this project are documented here. The format follows
     windows, freezes, emergencies, Ed25519 signatures, webhooks (`fleet.change.<state>`) and an
     audit row per transition. `POST /fleet/v1/fleets/{fleet}/site-changes` fans a site change set
     out to device EdgeAPIs (`/api/v1/changes`) in waves.
-  - Sign-in, roles, tokens and audit from `metrolla_auth` (EdgeAPI PR #105, branch
-    `feat/relay-changes`, which carries #101's auth; repin to `main` or a tag once it merges), mounted at `/fleet/v1/auth`, `/fleet/v1/access`, `/fleet/v1/audit` and
+  - Sign-in, roles, tokens and audit from `metrolla_auth` (EdgeAPI #101/#105, pinned to an
+    EdgeAPI `main` commit), mounted at `/fleet/v1/auth`, `/fleet/v1/access`, `/fleet/v1/audit` and
     `/fleet/auth` (browser sign-in). OpenAPI at `/fleet/v1/swagger.json`, UI at `/fleet/v1/docs`.
   - Device reach through openBalena's VPN proxy (`CONNECT <uuid>.balena:80` to `vpn:3128`), with a
     connectivity-only health fallback. **Not yet proven on a real openBalena (.183).**
@@ -39,7 +39,7 @@ All notable changes to this project are documented here. The format follows
     `rollout.verify_settle_s`. `verify.checks` is parsed but unused (verification here is device
     release and health).
   - The image build checks `import metrolla_auth.change_control`; the Ansible role vendors
-    metrolla-auth from `feat/relay-changes` (`fleet_api_metrolla_auth_ref`).
+    metrolla-auth at `fleet_api_metrolla_auth_ref`.
   - **Authority comes from approvals, not the author.** Each fleet item maps to the permission a
     direct write needs (`release.build` → fleet:release, `release.deploy` → fleet:deploy,
     `env.patch` → fleet:env, `site.change` → change:author; `op.device.*` → fleet:device,
@@ -77,6 +77,29 @@ All notable changes to this project are documented here. The format follows
 - **`make test-fleet-api`** and a `fleet-api tests` CI job (Python 3.12). The job needs an
   `EDGEAPI_READ_TOKEN` repo secret to install metrolla-auth from the private EdgeAPI repo; without
   it the job is skipped with a warning.
+
+### Fixed
+- **Fleet API `registry_prune` on registry:3.** The registry binary and config path are now found
+  inside the registry container (`registry` + `/etc/distribution/config.yml` on `registry:3`,
+  `/etc/docker/registry/config.yml` on `registry:2`, `docker-registry` + `/etc/docker-registry.yml`
+  on upstream `balena/open-balena-registry`, or a `.yml` in the container's command). The old
+  default `/etc/docker/registry/config.yml` was wrong for both registry:3 and openBalena's image.
+  `server.registry_config` (now empty by default) and the new `server.registry_bin` override it.
+- **Fleet API server operations no longer leave processes behind.** Killing `docker exec` on
+  timeout left the command (e.g. `registry garbage-collect`) running in the container. In-container
+  commands now record their pid in `/tmp/fleet-api-<op id>.pid` and are stopped (TERM, then KILL)
+  when they time out, and when the API finds an operation still `running` after a restart (marked
+  `failed`, `interrupted`). Only one operation of a type runs at a time (409 `operation-running`).
+  Time limits are per type: `server.operation_timeouts_s` (`registry_prune` 3600 s), else
+  `command_timeout_s` (900 s). Operations stay async (202, then poll
+  `GET /fleet/v1/server/operations/{id}`).
+
+### Changed
+- **metrolla-auth repinned to EdgeAPI `main`.** `requirements-auth.txt` and
+  `fleet_api_metrolla_auth_ref` pin EdgeAPI `main` commit `71e546b` instead of the merged
+  `feat/relay-changes` branch. The role's checkout is shallow only for a branch or tag ref.
+- `make secret-scan` ignores a 40-hex commit pin in a pip `git+…@<sha>#` URL or an Ansible
+  `*_ref:` var (the rest of such a line is still scanned).
 
 ### Configuration reference (new)
 - **Container env vars:** `DNS_TLD` (expanded as `${DNS_TLD}` in the config file),
