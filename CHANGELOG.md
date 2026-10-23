@@ -19,17 +19,27 @@ All notable changes to this project are documented here. The format follows
     windows, freezes, emergencies, Ed25519 signatures, webhooks (`fleet.change.<state>`) and an
     audit row per transition. `POST /fleet/v1/fleets/{fleet}/site-changes` fans a site change set
     out to device EdgeAPIs (`/api/v1/changes`) in waves.
-  - Sign-in, roles, tokens and audit from `metrolla_auth` (EdgeAPI PR #101, branch
-    `feat/relay-auth`), mounted at `/fleet/v1/auth`, `/fleet/v1/access`, `/fleet/v1/audit` and
+  - Sign-in, roles, tokens and audit from `metrolla_auth` (EdgeAPI PR #105, branch
+    `feat/relay-changes`, which carries #101's auth; repin to `main` or a tag once it merges), mounted at `/fleet/v1/auth`, `/fleet/v1/access`, `/fleet/v1/audit` and
     `/fleet/auth` (browser sign-in). OpenAPI at `/fleet/v1/swagger.json`, UI at `/fleet/v1/docs`.
   - Device reach through openBalena's VPN proxy (`CONNECT <uuid>.balena:80` to `vpn:3128`), with a
     connectivity-only health fallback. **Not yet proven on a real openBalena (.183).**
   - State in SQLite at `/data/fleet-api.db` on the `fleet-api-data` volume.
-- **`metrolla_change_control`** (`components/fleet-api/metrolla_change_control/`): the generic
-  change-set rules (canonical JSON and plan hash, compact-JWS EdDSA signature checks matching
-  metrolla-cli, the `change_control` config with JSON-Pointer errors, RRULE windows and freezes,
-  the state machine, approval rules). It imports only the standard library, `dateutil` and
-  `cryptography` (a test enforces this) so it can move into `metrolla_auth`.
+- **Shared change-control engine:** the generic change-set rules (canonical JSON and plan hash,
+  compact-JWS EdDSA signature checks matching metrolla-cli, the `change_control` config with
+  JSON-Pointer errors, RRULE windows and freezes, the state machine, approval rules, webhook HMAC)
+  come from `metrolla_auth.change_control` (EdgeAPI PR #105), the same code EdgeAPI's change
+  control runs. The interim `components/fleet-api/metrolla_change_control/` copy and its tests
+  are gone; the tests live in EdgeAPI's `tests/test_change_control_engine.py`.
+  - `change_control.webhooks` (`[{url, events, secret | secret_env}]`) are delivered alongside the
+    top-level `webhooks` (which also accept `secret_env` now). Every hook uses EdgeAPI's wire
+    format: canonical JSON body, `X-Metrolla-Event`, `X-Metrolla-Delivery` and
+    `X-Metrolla-Signature: sha256=<HMAC-SHA256 of the body>` from the shared `signature()` helper.
+  - `change_control.verify.settle_s` is honoured: verification waits the longer of it and
+    `rollout.verify_settle_s`. `verify.checks` is parsed but unused (verification here is device
+    release and health).
+  - The image build checks `import metrolla_auth.change_control`; the Ansible role vendors
+    metrolla-auth from `feat/relay-changes` (`fleet_api_metrolla_auth_ref`).
 - **Image and compose project:** `components/fleet-api/Dockerfile` builds `metrolla-fleet-api:local`
   (Python 3.12, gunicorn with **one** worker and 8 threads because the change scheduler runs in the
   process, static docker CLI for server operations, healthcheck on `/fleet/v1/ping`).

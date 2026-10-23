@@ -49,7 +49,8 @@ imagemaker_host: 172.17.0.1           # let the container reach the imagemaker
 1. fails early if `fleet_api_balena_api_key` is empty;
 2. vendors metrolla-auth into the build context, from `fleet_api_metrolla_auth_src` on the
    control node, or from a shallow checkout of `fleet_api_metrolla_auth_repo` at
-   `fleet_api_metrolla_auth_ref` (default `feat/relay-auth`) using `fleet_api_github_token`;
+   `fleet_api_metrolla_auth_ref` (default `feat/relay-changes`, EdgeAPI PR #105, until it merges)
+   using `fleet_api_github_token`;
 3. builds `metrolla-fleet-api:local`;
 4. writes `<install_root>/fleet-api/config/{fleet-api,auth}.yaml` from the role templates
    (`fleet_api_manage_auth_config: false` leaves `auth.yaml` alone), the secrets in
@@ -140,8 +141,8 @@ the previous settings stay; an invalid file at start-up refuses to start.
 | `server` | `docker`, `containers.{builder_dind,haproxy,registry}` (`open-balena-*-1`), `registry_url`, `builder_url`, `haproxy_health_url`, `haproxy_stats_url`, `haproxy_stats_auth_file`, `registry_config` (`/etc/docker/registry/config.yml`), `builder_disk_warn_pct` (80), `builder_disk_fail_pct` (90), `command_timeout_s` (900) |
 | `env` | `secret_patterns` (`TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `KEY`, `CREDENTIAL`, `PRIVATE`, `DSN`): names containing one are masked as `***` |
 | `rollout` | `update_timeout_min` (30), `site_change_timeout_min` (1440), `tick_s` (15), `verify_settle_s` (60) |
-| `webhooks` | `[{url, events: [glob], secret_file}]` |
-| `change_control` | `mode` (`open` \| `gated`), `allowed_callers`, `require_signature`, `trusted_keys`, `timezone` (UTC), `windows`, `freezes`, `verify.timeout_s` (120), `emergency.approvals` (2), `policy` (each class defaults to `{approvals: 0, window: false}`) |
+| `webhooks` | `[{url, events: [glob], secret_file \| secret_env}]` |
+| `change_control` | The shared `metrolla_auth.change_control` section, as on EdgeAPI: `mode` (`open` \| `gated`), `allowed_callers`, `require_signature`, `trusted_keys`, `timezone` (UTC), `windows`, `freezes`, `verify.timeout_s` (120), `verify.settle_s` (0; the longer of it and `rollout.verify_settle_s` applies), `emergency.approvals` (2), `policy` (each class defaults to `{approvals: 0, window: false}`), `webhooks` (`[{url, events, secret \| secret_env}]`). `verify.checks` is parsed but not used: the Fleet API's verification is device release and health |
 
 Policy lookups fall back to the parent class (`op.device.reboot` → `op.device` → `op`) and then
 to `default`. Resource classes: `release.build`, `release.deploy`, `env`, `site.change`,
@@ -456,7 +457,7 @@ anything changed).
    `stale` and needs `POST …/plan` and fresh approvals. Otherwise it is `applying` and runs the
    items in order (build → env → rollout waves / site fan-out).
 5. **Verify:** `verifying` until devices run their target and health holds for
-   `rollout.verify_settle_s`; then `applied`. A halt, worse health or a verify timeout rolls back
+   `rollout.verify_settle_s` (or `change_control.verify.settle_s` when longer); then `applied`. A halt, worse health or a verify timeout rolls back
    (`rolled_back`). `POST …/rollback` undoes an applied change.
 6. **Notify and audit:** every transition writes an audit row and an event in `history`, and
    fires matching webhooks.
@@ -488,14 +489,22 @@ anything changed).
   that class's policy needs no approval and no window. Reads are never gated. A direct pin or env
   write while a change is rolling out on the fleet gets 409 `rollout-in-progress`.
 - **One rollout per fleet.** Others wait (`approved`/`scheduled`) in creation order.
-- **Webhooks** (`webhooks: [{url, events, secret_file}]`) get `fleet.change.<state>` and
-  `fleet.change.emergency` with the change id, ticket, fleets and state;
-  `X-Metrolla-Signature: sha256=<hmac>` when a secret is set.
+- **Webhooks** (top-level `webhooks: [{url, events, secret_file | secret_env}]` and
+  `change_control.webhooks: [{url, events, secret | secret_env}]`, both delivered) get
+  `fleet.change.<state>` and `fleet.change.emergency` with the change id, ticket, fleets and
+  state. Same wire format as EdgeAPI's change webhooks (EdgeAPI `docs/CHANGE_CONTROL.md`): the
+  body is canonical JSON (sorted keys, no spaces), with `X-Metrolla-Event`,
+  `X-Metrolla-Delivery` (unique per delivery) and, when the hook has a secret,
+  `X-Metrolla-Signature: sha256=<HMAC-SHA256 of the raw body>`, made with
+  `metrolla_auth.change_control.signature` (receivers can check it with `verify_signature`).
+  Prefer `secret_file` (a file under `/run/secrets`) or `secret_env`: an inline `secret` is
+  shown to anyone who can read `fleet-api.yaml`, though never by `GET /change-control`.
 
 The generic half of these rules (canonical JSON, plan hash, signatures, config, windows,
-freezes, state machine, approval rules) lives in `components/fleet-api/metrolla_change_control/`,
-which has no balena, Flask or SQLAlchemy in it so it can move into `metrolla_auth` for EdgeAPI's
-change control. The fleet-specific half (base state, items, rollouts) is `fleet_api/changes.py`.
+freezes, state machine, approval rules, webhook HMAC) is `metrolla_auth.change_control`, shared
+with EdgeAPI's change control (EdgeAPI `packages/metrolla_auth/src/metrolla_auth/change_control/`,
+PR #105; its tests are EdgeAPI's `tests/test_change_control_engine.py`). The fleet-specific
+half (base state, items, rollouts) is `fleet_api/changes.py`.
 
 ### Rollouts
 
@@ -618,7 +627,7 @@ python -m pytest            # or, from the repo root: make test-fleet-api
 ```
 
 `requirements-auth.txt` installs metrolla-auth from the private EdgeAPI repo (branch
-`feat/relay-auth`); with a local EdgeAPI checkout, `pip install <EdgeAPI>/packages/metrolla_auth`
+`feat/relay-changes` until EdgeAPI PR #105 merges, then repin to `main` or a tag); with a local EdgeAPI checkout, `pip install <EdgeAPI>/packages/metrolla_auth`
 instead. CI runs the same tests in the `fleet-api tests` job when the `EDGEAPI_READ_TOKEN` repo
 secret is set.
 
@@ -632,7 +641,7 @@ real openBalena.
 | Symptom | Likely cause and fix |
 |---|---|
 | `fleet.<tld>` answers 503 | The `openbalena-fleet` project isn't running or is unhealthy: `docker compose -p openbalena-fleet ps`, `docker logs openbalena-fleet-fleet-api-1`. Or haproxy wasn't reloaded with the new route. |
-| Container exits at start | The `change_control` section of `fleet-api.yaml` is invalid (the error names the JSON pointer), or the YAML doesn't parse. A bad image build fails earlier: the Dockerfile checks `import metrolla_auth`. |
+| Container exits at start | The `change_control` section of `fleet-api.yaml` is invalid (the error names the JSON pointer), or the YAML doesn't parse. A bad image build fails earlier: the Dockerfile checks `import metrolla_auth.change_control`, so a metrolla-auth older than EdgeAPI #105 fails the build. |
 | 403 "This network is not allowed to reach this host" | The client address isn't in `auth.allow_networks`. Check what haproxy puts in `X-Real-IP`; a relay that source-NATs changes it. |
 | 502 `openbalena` with `no balena API key configured` | `secrets/balena_api_key` is empty or not mounted at `/run/secrets`. |
 | 502 `openbalena` with a TLS error | `balena.verify` points at a CA that doesn't match. Confirm `/certs/root-ca.pem` exists in `open-balena_certs-data`; set `fleet_api_tls_verify: false` only while proving the path. |
