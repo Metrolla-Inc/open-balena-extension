@@ -1,0 +1,55 @@
+# /etc/fleet-api/fleet-api.yaml — copy and adjust. ${DNS_TLD} is expanded from the environment.
+# Secrets are never in this file: each *_file below names a file under /run/secrets.
+balena:
+  api_url: https://api.${DNS_TLD}
+  api_key_file: /run/secrets/balena_api_key     # balena api-key generate fleet-api
+  verify: /certs/root-ca.pem                     # or false while proving the path on a lab host
+builder:
+  mode: http                                     # http (what balena push does) | cli (balena push)
+  url: http://builder:80
+git:
+  repo_base: https://github.com/Metrolla-Inc/
+  allowed_repos: [balena-fleets, balena-fleets-metrollaprod]
+  token_file: /run/secrets/git_token             # read-only token for those repos
+reach:
+  mode: vpn_proxy                                # vpn_proxy | connectivity
+  proxy_host: vpn
+  proxy_port: 3128
+  device_port: 80
+  device_token_file: /run/secrets/device_token   # only when device EdgeAPI sign-in is on
+  device_user: fleet-api
+imagemaker:
+  url: http://host.docker.internal:8090
+  token_file: /run/secrets/imagemaker_token
+server:
+  containers:
+    builder_dind: open-balena-builder-dind-1
+    haproxy: open-balena-haproxy-1
+    registry: open-balena-registry-1
+rollout:
+  update_timeout_min: 30
+  verify_settle_s: 60
+webhooks: []
+#  - url: https://servicenow.example/api/fleet-hook
+#    events: ["fleet.change.*"]
+#    secret_file: /run/secrets/webhook_servicenow
+change_control:
+  mode: open                                     # open = direct writes, as today; gated = change sets only
+  # allowed_callers: [machine]
+  # require_signature: true
+  # trusted_keys:
+  #   - { kid: ci-2026, ed25519: "MCowBQYDK2VwAyEA…" }
+  # timezone: America/Los_Angeles
+  # windows:
+  #   - { name: weekly, rrule: "FREQ=WEEKLY;BYDAY=TU,TH;BYHOUR=2", duration_min: 120 }
+  # freezes:
+  #   - { start: 2026-11-25T00:00:00-08:00, end: 2026-12-01T00:00:00-08:00, reason: peak }
+  # verify: { timeout_s: 600 }
+  # emergency: { approvals: 2 }
+  # policy:
+  #   release.build:      { approvals: 0, window: false }
+  #   release.deploy:     { approvals: 1, window: true }
+  #   env:                { approvals: 1, window: true }
+  #   site.change:        { approvals: 0, window: false }
+  #   op.device:          { approvals: 0, window: false }
+  #   op.server:          { approvals: 1, window: false }

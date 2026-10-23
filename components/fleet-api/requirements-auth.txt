@@ -1,0 +1,2 @@
+# Shared sign-in, roles, tokens and audit (EdgeAPI PR #101). Pinned to the branch until it merges.
+metrolla-auth @ git+https://github.com/Metrolla-Inc/EdgeAPI.git@feat/relay-auth#subdirectory=packages/metrolla_auth

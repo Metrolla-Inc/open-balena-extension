@@ -1,0 +1,10 @@
+# Fleet Control API. metrolla-auth is in requirements-auth.txt (private EdgeAPI repo).
+Flask==3.0.3
+Werkzeug==3.0.4
+flask-restx==1.3.0
+SQLAlchemy>=2.0
+requests>=2.31
+PyYAML>=6.0
+python-dateutil>=2.8
+cryptography>=41
+gunicorn>=22
