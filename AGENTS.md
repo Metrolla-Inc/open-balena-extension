@@ -108,7 +108,7 @@ pip install -r requirements.txt -r requirements-auth.txt -r requirements-test.tx
 #   or with a local EdgeAPI checkout: pip install -r requirements.txt -r requirements-test.txt <EdgeAPI>/packages/metrolla_auth
 python -m pytest -q          # from the repo root: make test-fleet-api
 make lint                    # repo root: shell/node lint + secret scan (what CI runs)
-cd ansible && ansible-playbook --syntax-check -i inventory.example.ini site.yml
+cd ansible && ansible-playbook --syntax-check -i inventory.example.ini site.yml   # needs community.docker >= 3.6 (docker_compose_v2)
 ```
 CI's `fleet-api tests` job needs the `EDGEAPI_READ_TOKEN` repo secret; without it the job is skipped with a warning, so a green CI run does not prove the tests ran.
 
