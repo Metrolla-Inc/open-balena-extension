@@ -3,7 +3,7 @@
 This file orients AI coding assistants working on **open-balena-extension**. Read it before making changes. (`CLAUDE.md` points here.)
 
 ## What this project is
-Production extensions for self-hosted [openBalena](https://github.com/balena-io/open-balena): a **remote builder** (so `balena push` works), an **imagemaker** (web UI + scripts to build flashable device images), a **custom haproxy** ingress, and integration with the community **admin dashboard**. Core openBalena is unmodified upstream; everything here sits *around* it.
+Production extensions for self-hosted [openBalena](https://github.com/balena-io/open-balena): a **remote builder** (so `balena push` works), an **imagemaker** (web UI + scripts to build flashable device images), a **custom haproxy** ingress, integration with the community **admin dashboard**, and an opt-in **Fleet Control API** (`/fleet/v1`, see below). Core openBalena is unmodified upstream; everything here sits *around* it.
 
 ## The one mental model you must hold: internal vs public TLD
 openBalena issues device endpoints under a single `DNS_TLD`. This project supports running an **internal** `DNS_TLD` (e.g. `example.local`) while reaching the instance **publicly** via a reverse proxy at `PUBLIC_TLD` (e.g. `ob.example.com`).
@@ -25,6 +25,11 @@ openBalena issues device endpoints under a single `DNS_TLD`. This project suppor
 10. **Host-local tools need split-horizon DNS.** Tools on the host (imagemaker `config generate`) resolving `api.${PUBLIC_TLD}` hairpin out to the relay and back — flaky. Add `/etc/hosts` → local haproxy. Also: `build-image.sh` must run with `BALENARC_BALENA_URL` set (it relies on the CLI default otherwise).
 11. **PostgREST needs DB roles.** A wiped/rebuilt DB loses the dcnext admin roles (`anon`, etc.); PostgREST returns `role "anon" does not exist` and its proxy `ECONNRESET`s. Recreate the roles + grants.
 12. **A registry blob migration must be COMPLETE or every pull 404s.** Repointing the registry's S3 backend (e.g. minio → R2) requires copying the *entire* `data/docker/registry/v2/` tree — `repositories/` **and** every blob, including the tiny manifest/config JSON blobs. If those small blobs are missed (the big layers copy fine), the registry resolves the manifest link → can't read the manifest blob → `404 manifest unknown`, and devices stall at `Downloading 0%` with `manifest for …@sha256:… not found`. **This is a server-side store gap, NOT a device fault — do not reflash the device.** Verify blob-count parity (source vs R2) and that a real manifest serves `200` + a blob `307`s to R2 before declaring success. See [docs/registry-edge-cache.md](docs/registry-edge-cache.md).
+
+13. **The Fleet API never returns the balena API key** — not in a response, a log line, an error/problem body, an audit row, the OpenAPI document, or argv. It reads the key from `/run/secrets/balena_api_key` (or `BALENA_API_KEY`) and only ever sends it as a bearer to pine/the builder, as the VPN proxy's Basic password, or into the CLI builder's `token` file. `BalenaError` messages carry the HTTP status and a truncated response body, never request headers. `tests/test_auth.py::test_balena_key_is_never_returned` guards this; extend it when you add a route. Env values matching `env.secret_patterns` stay masked (`***`) in responses and audit rows.
+14. **`metrolla_change_control` stays free of balena specifics.** `components/fleet-api/metrolla_change_control/` is the generic half of change control and is moving into `metrolla_auth` (as `metrolla_auth.change_control`) for EdgeAPI's change control. It may import only the stdlib, `dateutil` and `cryptography` — no balena, fleets, devices, Flask or SQLAlchemy (`tests/test_change_control.py::test_module_imports_nothing_host_specific` enforces this). Fleet-specific logic (base state, items, rollouts) belongs in `fleet_api/changes.py`. Its signature check must stay byte-compatible with metrolla-cli's "Change set signatures" spec.
+15. **The VPN proxy path is unproven on .183 — verify it before relying on it.** Device-level actions that go through the VPN (`reach.py` `CONNECT <uuid>.balena:80` via `vpn:3128` with Basic `root:<api key>`: EdgeAPI health in rollouts/`halt_if`, site-change fan-out) have only been tested against fakes. Before you depend on them, confirm on the real host that `GET /fleet/v1/server/health` shows `vpn` ok and `GET /fleet/v1/fleets/{fleet}/devices` shows `health.source: edgeapi`. Otherwise health silently degrades to connectivity-only. Don't claim a rollout's health gating works until that's been seen.
+16. **Fleet API runs one process, opt-in and private.** gunicorn `-w 1` (the change scheduler and the build lock live in-process). The role stays off by default (`deploy_fleet_api: false`), sign-in stays off by default (anonymous `site_admin` limited to `auth.allow_networks`) and `change_control.mode` stays `open` — existing hosts must not change behaviour. Never route `fleet.<tld>` publicly while sign-in is off; the container holds the balena admin key and the docker socket.
 
 For field-scale bandwidth, offload registry blobs to cloud object storage (R2) with blob redirect — see [docs/registry-edge-cache.md](docs/registry-edge-cache.md).
 
@@ -84,10 +89,45 @@ broken device — the real fix is console access or **reflashing an `__internet`
 trap: a device reads `api_heartbeat_state: online` but `is_connected_to_vpn: false` — it *looks*
 deployed but its endpoints are still internal. Diagnose with the TLD split, don't declare victory.
 
+## Fleet Control API (`components/fleet-api`)
+HTTP API at `/fleet/v1` on the openBalena host (haproxy `fleet.<tld>` → `fleet-api:80`): builds and finalizes releases from a git ref, wave rollouts under change control, env vars, device operations, images via the imagemaker, drift, server upkeep. Sign-in/roles/audit come from `metrolla_auth` (EdgeAPI PR #101, branch `feat/relay-auth`). Full reference: [docs/fleet-api.md](docs/fleet-api.md).
+
+Where things live:
+- `components/fleet-api/fleet_api/` — the Flask + flask-restx service. `app.py` (every route, the gate, the scheduler thread), `balena.py` (pine v6 client + supervisor proxy), `builds.py`/`builder.py`/`gitsrc.py` (clone → `/v3/build` → finalize), `changes.py` (fleet change sets), `rollout.py` (waves), `fanout.py` (site changes to device EdgeAPI), `reach.py` (VPN proxy), `service.py` (fleets, devices, env, drift), `env.py` (masking), `server.py` (health + docker upkeep), `images.py`, `settings.py` (config defaults), `models.py` (SQLite).
+- `components/fleet-api/metrolla_change_control/` — generic change-control rules (invariant 14).
+- `components/fleet-api/tests/` — pytest; `fakes.py` has the fake pine API, builder, VPN proxy, device EdgeAPI and imagemaker (real HTTP servers on 127.0.0.1).
+- `components/fleet-api/{Dockerfile,docker-compose.yml,fleet-api.example.yaml,auth.example.yaml}` — image `metrolla-fleet-api:local`, compose project `openbalena-fleet`, config examples.
+- `ansible/roles/fleet_api/` — the role (tag `fleet_api`, gated by `deploy_fleet_api`); defaults in `defaults/main.yml`, config templates in `templates/`.
+- `components/haproxy/haproxy.cfg` — the `fleet.` ACLs and `backend fleet-backend`.
+- `docs/fleet-api.md` — deploy, config/env, auth, every endpoint, change-control flow, VPN caveat, troubleshooting.
+
+Tests (exact commands; metrolla-auth comes from the private EdgeAPI repo):
+```bash
+cd components/fleet-api
+pip install -r requirements.txt -r requirements-auth.txt -r requirements-test.txt
+#   or with a local EdgeAPI checkout: pip install -r requirements.txt -r requirements-test.txt <EdgeAPI>/packages/metrolla_auth
+python -m pytest -q          # from the repo root: make test-fleet-api
+make lint                    # repo root: shell/node lint + secret scan (what CI runs)
+cd ansible && ansible-playbook --syntax-check -i inventory.example.ini site.yml
+```
+CI's `fleet-api tests` job needs the `EDGEAPI_READ_TOKEN` repo secret; without it the job is skipped with a warning, so a green CI run does not prove the tests ran.
+
+When changing it:
+- Keep the role templates (`ansible/roles/fleet_api/templates/`) and the `*.example.yaml` files in step with `fleet_api/settings.py`; `tests/test_units.py::test_example_configs_parse` parses the examples.
+- A new write route must call `gate(<resource class>, fleet)` in `app.py` and audit masked values; reads are never gated.
+- Builds stay one at a time (invariant 4 applies to the API too).
+
+How it relates to the other Relay PRs (cross-repo contract: EdgeAPI `docs/RELAY_CONTRACTS.md`):
+- **EdgeAPI** #101 `feat/relay-auth` provides `metrolla_auth` (pinned in `requirements-auth.txt`); #104 `feat/relay-core` is the EdgeAPI core that EdgeAPI's own change sets (F10/M2b) build on next; that work is where `metrolla_change_control` lands, and it provides the device `/api/v1/changes` that site-change fan-out posts to (`/api/v1/health` is what reach reads).
+- **metrolla-cli** #1 `feat/mtl-cli` — `mtl fleet build/deploy/approve/status` and the GitHub Action call this API; signatures follow its README's "Change set signatures".
+- **balena-fleets-metrollaprod** #18 `feat/compose-base-profiles` — the fleet repo this API builds releases from (`git.allowed_repos`), and the auth fleet env vars it may patch.
+- **AutocommFrontend** #185 / **datablade** #149–#152 / **infra** #6 — the site side (pages, plugins, recordings); they don't call this API directly.
+
 ## Repo layout
-- `components/` — the actual source (imagemaker, builder, haproxy, admin). Reference implementations; paths/domains parameterized where practical.
+- `components/` — the actual source (imagemaker, builder, haproxy, admin, fleet-api). Reference implementations; paths/domains parameterized where practical.
 - `ansible/` — playbooks/roles to deploy core + extensions.
-- `docs/` — architecture, the DNS split, setup, runbook, CLI onboarding.
+- `docs/` — architecture, the DNS split, setup, runbook, CLI onboarding, Fleet API (`fleet-api.md`).
+- `CHANGELOG.md` — Keep-a-Changelog; add an `[Unreleased]` entry with every change.
 
 ## When editing
 - Keep `components/` source and the `ansible/` roles in sync (a change to a script should be reflected in the role that deploys it).

@@ -1,0 +1,72 @@
+# Changelog
+
+All notable changes to this project are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [Unreleased]
+
+### Added
+- **Fleet Control API** (`components/fleet-api`, Relay plan F11 / M2c): a Flask + flask-restx
+  service serving `/fleet/v1` on the openBalena host. It builds releases from a git ref through the
+  remote builder and finalizes them, pins fleets and devices, rolls releases out in waves (canary
+  devices, cumulative percent, soak, `halt_if`, re-pin on halt), reads and patches env vars with
+  secret masking, restarts services and reboots devices through the supervisor proxy, builds
+  flashable images through the imagemaker, reports drift (devices off target, target pins and env
+  vars changed outside the API), checks server health and runs server upkeep (`registry_prune`,
+  `builder_prune`, `haproxy_restart`). Full reference: [docs/fleet-api.md](docs/fleet-api.md).
+  - Fleet change sets (`POST /fleet/v1/changes`) with the items `release.build`, `env.patch`,
+    `release.deploy` and `site.change`, a plan hash, approvals bound to that hash, RRULE release
+    windows, freezes, emergencies, Ed25519 signatures, webhooks (`fleet.change.<state>`) and an
+    audit row per transition. `POST /fleet/v1/fleets/{fleet}/site-changes` fans a site change set
+    out to device EdgeAPIs (`/api/v1/changes`) in waves.
+  - Sign-in, roles, tokens and audit from `metrolla_auth` (EdgeAPI PR #101, branch
+    `feat/relay-auth`), mounted at `/fleet/v1/auth`, `/fleet/v1/access`, `/fleet/v1/audit` and
+    `/fleet/auth` (browser sign-in). OpenAPI at `/fleet/v1/swagger.json`, UI at `/fleet/v1/docs`.
+  - Device reach through openBalena's VPN proxy (`CONNECT <uuid>.balena:80` to `vpn:3128`), with a
+    connectivity-only health fallback. **Not yet proven on a real openBalena (.183).**
+  - State in SQLite at `/data/fleet-api.db` on the `fleet-api-data` volume.
+- **`metrolla_change_control`** (`components/fleet-api/metrolla_change_control/`): the generic
+  change-set rules (canonical JSON and plan hash, compact-JWS EdDSA signature checks matching
+  metrolla-cli, the `change_control` config with JSON-Pointer errors, RRULE windows and freezes,
+  the state machine, approval rules). It imports only the standard library, `dateutil` and
+  `cryptography` (a test enforces this) so it can move into `metrolla_auth`.
+- **Image and compose project:** `components/fleet-api/Dockerfile` builds `metrolla-fleet-api:local`
+  (Python 3.12, gunicorn with **one** worker and 8 threads because the change scheduler runs in the
+  process, static docker CLI for server operations, healthcheck on `/fleet/v1/ping`).
+  `components/fleet-api/docker-compose.yml` runs it as compose project **`openbalena-fleet`** on
+  the external `open-balena_default` network (alias `fleet-api`), with the `fleet-api-data` volume,
+  `open-balena_certs-data` mounted read-only at `/certs`, the docker socket, and
+  `host.docker.internal` mapped to the host gateway.
+- **haproxy route `fleet.<tld>`** in both the `http` and `https` frontends of
+  `components/haproxy/haproxy.cfg`, to `backend fleet-backend` (`fleet-api:80`, `timeout server
+  300s`, `X-Real-IP` set from the client address, overwriting any client value). It answers 503
+  until the fleet-api project is deployed.
+- **Ansible role `fleet_api`** (tag `fleet_api`), wired into `ansible/site.yml` behind
+  **`deploy_fleet_api`**, which defaults to **`false`**. It vendors metrolla-auth, builds the image,
+  writes `<install_root>/fleet-api/{config,secrets}` and the compose `.env`, and starts the project.
+  Role variables are in `ansible/roles/fleet_api/defaults/main.yml`; the secrets
+  `fleet_api_balena_api_key` (required), `fleet_api_git_token`, `fleet_api_github_token` and
+  `fleet_api_device_token` are new entries in `ansible/group_vars/all.example.yml` (vault them).
+- **`imagemaker_host`** variable: the imagemaker unit now sets `HOST={{ imagemaker_host |
+  default('127.0.0.1') }}`. Set it to the docker bridge gateway (e.g. `172.17.0.1`) so the Fleet
+  API container can reach the imagemaker.
+- **`make test-fleet-api`** and a `fleet-api tests` CI job (Python 3.12). The job needs an
+  `EDGEAPI_READ_TOKEN` repo secret to install metrolla-auth from the private EdgeAPI repo; without
+  it the job is skipped with a warning.
+
+### Configuration reference (new)
+- **Container env vars:** `DNS_TLD` (expanded as `${DNS_TLD}` in the config file),
+  `FLEET_API_CONFIG` (default `/etc/fleet-api/fleet-api.yaml`), `METROLLA_AUTH_CONFIG` (default
+  `/etc/fleet-api/auth.yaml`), `FLEET_API_DATA_DIR` (default `/data`), `FLEET_API_DB` (default
+  `sqlite:///<data dir>/fleet-api.db`), `FLEET_API_SCHEDULER` (`0` disables the change
+  scheduler), `LOG_LEVEL` (compose sets it from `FLEET_API_LOG_LEVEL`, default `INFO`),
+  `BALENA_API_KEY` (optional alternative to the key file; the file is the default path).
+- **Compose env:** `DNS_TLD`, `INSTALL_ROOT` (default `/opt/openbalena`), `FLEET_API_LOG_LEVEL`.
+- **Secret files** under `<install_root>/fleet-api/secrets` → `/run/secrets`: `balena_api_key`,
+  `git_token`, `imagemaker_token`, `device_token`, plus any webhook `secret_file`.
+- **Ports:** the container listens on `:80` and is not published on the host; it is reached only
+  through haproxy (`fleet.<tld>`). Outbound it uses `https://api.<DNS_TLD>` (pine v6),
+  `builder:80` (`/v3/build`), `vpn:3128` (device CONNECT proxy), `registry:80`, `haproxy:80/health`
+  and the imagemaker at `host.docker.internal:8090`.
+- **Defaults keep today's behaviour:** the role is off, sign-in is off (`auth.enabled: false`,
+  anonymous `site_admin` limited to `auth.allow_networks`), and `change_control.mode: open`.
