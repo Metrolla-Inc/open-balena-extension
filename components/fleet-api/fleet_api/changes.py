@@ -692,7 +692,8 @@ class FleetChanges:
             change = self._save(change, verify_result=result)
             return self._rollback(change, 'verification failed: %s' % '; '.join(failures), None)
         started = datetime.fromisoformat(prog['verify_started'])
-        settle = timedelta(seconds=int(self.settings()['rollout'].get('verify_settle_s', 60)))
+        settle = timedelta(seconds=max(int(self.settings()['rollout'].get('verify_settle_s', 60)),
+                                       self.cfg.verify_settle_s))
         if not pending:
             if now - started < settle:
                 return self._save(change, verify_result=dict(result, settling_until=iso(started + settle)))

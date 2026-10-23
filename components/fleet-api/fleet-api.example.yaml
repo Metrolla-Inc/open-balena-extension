@@ -32,7 +32,7 @@ rollout:
 webhooks: []
 #  - url: https://servicenow.example/api/fleet-hook
 #    events: ["fleet.change.*"]
-#    secret_file: /run/secrets/webhook_servicenow
+#    secret_file: /run/secrets/webhook_servicenow    # or secret_env: NAME; signs X-Metrolla-Signature
 change_control:
   mode: open                                     # open = direct writes, as today; gated = change sets only
   # allowed_callers: [machine]
@@ -44,7 +44,7 @@ change_control:
   #   - { name: weekly, rrule: "FREQ=WEEKLY;BYDAY=TU,TH;BYHOUR=2", duration_min: 120 }
   # freezes:
   #   - { start: 2026-11-25T00:00:00-08:00, end: 2026-12-01T00:00:00-08:00, reason: peak }
-  # verify: { timeout_s: 600 }
+  # verify: { timeout_s: 600, settle_s: 0 }      # settle: the longer of this and rollout.verify_settle_s; checks: unused here
   # emergency: { approvals: 2 }
   # policy:
   #   release.build:      { approvals: 0, window: false }
@@ -53,3 +53,5 @@ change_control:
   #   site.change:        { approvals: 0, window: false }
   #   op.device:          { approvals: 0, window: false }
   #   op.server:          { approvals: 1, window: false }
+  # webhooks:                                     # also delivered, as on EdgeAPI (secret | secret_env)
+  #   - { url: https://itsm.example/hook, secret_env: ITSM_HOOK_SECRET, events: ["fleet.change.*"] }

@@ -523,7 +523,7 @@ class HookSink:
 
         @app.route('/hook', methods=['POST'])
         def hook():
-            sink.events.append({'body': request.get_json(), 'headers': dict(request.headers)})
+            sink.events.append({'body': request.get_json(), 'headers': dict(request.headers), 'raw': request.get_data()})
             return 'ok'
 
         self.server = make_server('127.0.0.1', 0, app, threaded=True)

@@ -162,7 +162,8 @@ def create_app(settings: Optional[SettingsProvider] = None, auth_provider=None, 
                             on_target=lambda f, d, rid: fleet.record_target(f, d, rid, 'rollout'))
     fanout = FanoutEngine(comp.balena, comp.reach,
                           lambda: int(comp.settings()['rollout'].get('site_change_timeout_min', 1440)))
-    notifier = Notifier(lambda: comp.settings().get('webhooks') or [], jobs, clock, session=http_session)
+    notifier = Notifier(lambda: [*(comp.settings().get('webhooks') or []), *comp.settings().change_control.webhooks],
+                        jobs, clock, session=http_session)
     changes = FleetChanges(session_factory, fleet, builds, rollout, fanout, comp.settings, clock, notifier,
                            auth_service.audit, comp.git)
     images = ImageService(session_factory, comp.imagemaker)

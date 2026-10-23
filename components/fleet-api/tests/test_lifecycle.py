@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from conftest import FLEET, FLEET_SEG, as_, auth_on
+from metrolla_auth import change_control as cc
 from metrolla_auth.change_control import public_key_b64, sign_change
 
 WINDOWS = [{'name': 'weekly', 'rrule': 'FREQ=WEEKLY;BYDAY=TU,TH;BYHOUR=2', 'duration_min': 120}]
@@ -72,6 +73,20 @@ def test_window_schedules_then_applies_and_a_missed_window_expires(world):
     m = world.change(missed['id'])
     assert m['state'] == 'expired' and 'window ended' in m['error']
     assert 'fleet.change.expired' in world.hooks.types()
+
+
+def test_change_control_webhooks_are_signed_like_edgeapi(world):
+    world.start(change_control={'webhooks': [{'url': world.hooks.url, 'secret': 's3',
+                                              'events': ['fleet.change.applied']}]}, webhooks=[])
+    c = _post(world, [_env_item()]).json
+    assert c['state'] == 'applied'
+    assert world.hooks.types() == ['fleet.change.applied']
+    hit = world.hooks.events[0]
+    assert hit['body']['change_id'] == c['id'] and hit['body']['ticket'] == 'CHG1'
+    assert cc.verify_signature('s3', hit['raw'], hit['headers'][cc.SIGNATURE_HEADER])
+    assert hit['headers']['X-Metrolla-Delivery']
+    shown = world.client.get('/fleet/v1/change-control', headers=world.headers).json
+    assert shown['webhooks'] == [{'url': world.hooks.url, 'events': ['fleet.change.applied'], 'signed': True}]
 
 
 def test_freeze_beats_window_and_emergency_bypasses_both(world):

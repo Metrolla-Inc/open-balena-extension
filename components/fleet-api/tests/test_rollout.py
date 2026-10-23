@@ -137,6 +137,19 @@ def test_canary_only_rollout_leaves_fleet_target(world):
     assert world.client.get('/fleet/v1/drift').json['drift'] == []
 
 
+def test_change_control_verify_settle_extends_the_rollout_settle(world):
+    world.start(change_control={'verify': {'settle_s': 600}})       # rollout.verify_settle_s is 0 here
+    r2 = world.balena.release(world.fleet)
+    c = _post(world, [{'op': 'release.deploy', 'fleet': FLEET, 'release': r2['id'],
+                       'waves': [{'devices': ['stone-bridge']}], 'soak_min': 0}]).json
+    for _ in range(4):
+        world.tick()
+    c = world.change(c['id'])
+    assert c['state'] == 'verifying' and c['verify_result']['settling_until']
+    world.tick(minutes=11)
+    assert world.change(c['id'])['state'] == 'applied'
+
+
 def test_unknown_wave_device_is_a_validation_error(world):
     world.start()
     r = _post(world, [dict(DEPLOY, release=world.r1['id'], waves=[{'devices': ['no-such-device']}])])
