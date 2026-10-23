@@ -3,7 +3,7 @@ site.change items, planned against the fleets' current state, approved against t
 hash, applied inside windows by the scheduler, verified, and rolled back on failure.
 
 The generic rules (state machine, plan hash, approvals, windows, freezes, signatures) come
-from metrolla_change_control; this module only knows how to plan, apply, verify and undo
+from metrolla_auth.change_control; this module only knows how to plan, apply, verify and undo
 fleet items.
 
 Base state (what makes a plan stale): per fleet, its target release when a deploy item rolls
@@ -21,8 +21,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from sqlalchemy import select
 
-import metrolla_change_control as cc
-from metrolla_change_control import Schedule, SignatureError, verify_request
+from metrolla_auth import change_control as cc
+from metrolla_auth.change_control import Schedule, SignatureError, verify_request
 
 from .balena import BalenaError, normalize_device
 from .env import EnvError, EnvStore, is_secret, masked, validate_patch, value_sha256

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from conftest import FLEET, FLEET_SEG, as_, auth_on
-from metrolla_change_control import public_key_b64, sign_change
+from metrolla_auth.change_control import public_key_b64, sign_change
 
 WINDOWS = [{'name': 'weekly', 'rrule': 'FREQ=WEEKLY;BYDAY=TU,TH;BYHOUR=2', 'duration_min': 120}]
 

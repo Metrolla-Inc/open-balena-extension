@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Mapping, Optional
 
 import yaml
 
-from metrolla_change_control import ChangeControlConfig, ChangeControlConfigError, parse_change_control
+from metrolla_auth.change_control import ChangeControlConfig, ChangeControlConfigError, parse_change_control
 
 log = logging.getLogger('fleet_api')
 
@@ -84,9 +84,9 @@ DEFAULTS: Dict[str, Any] = {
         'update_timeout_min': 30,       # a wave's devices must run the release within this
         'site_change_timeout_min': 1440,
         'tick_s': 15,
-        'verify_settle_s': 60,          # health must hold this long after the last item before applied
+        'verify_settle_s': 60,          # health must hold this long after the last item (or verify.settle_s if longer)
     },
-    'webhooks': [],                     # [{url, events: [glob], secret_file}]
+    'webhooks': [],                     # [{url, events: [glob], secret_file or secret_env}]; see webhooks.py
     'change_control': {},
 }
 

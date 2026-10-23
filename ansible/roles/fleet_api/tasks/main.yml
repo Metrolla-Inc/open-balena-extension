@@ -22,8 +22,7 @@
     src: "{{ repo_root }}/components/fleet-api/{{ item }}"
     dest: "{{ install_root }}/fleet-api/build/"
     mode: preserve
-  loop: [Dockerfile, .dockerignore, requirements.txt, requirements-auth.txt, wsgi.py, fleet_api,
-         metrolla_change_control]
+  loop: [Dockerfile, .dockerignore, requirements.txt, requirements-auth.txt, wsgi.py, fleet_api]
 
 - name: Vendor metrolla-auth from the control node
   ansible.builtin.copy:

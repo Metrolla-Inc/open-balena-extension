@@ -18,11 +18,10 @@ from flask_restx import Api, Resource
 from sqlalchemy.orm import sessionmaker
 
 from metrolla_auth import AuthService, StaticConfigProvider, YamlFileConfigProvider
+from metrolla_auth import change_control as cc
 from metrolla_auth.errors import AuthError
 from metrolla_auth.flask import FlaskAuth, audit_values, current_principal, public, require
 from metrolla_auth.flask_routes import browser_blueprint, register_restx
-
-import metrolla_change_control as cc
 
 from .balena import BalenaClient, BalenaError
 from .builder import CliBuilder, HttpBuilder

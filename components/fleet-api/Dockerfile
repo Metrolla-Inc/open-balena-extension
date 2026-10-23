@@ -33,10 +33,9 @@ RUN --mount=type=secret,id=github_token,required=false \
       rm -f /root/.gitconfig; \
     fi; \
     rm -rf /tmp/vendor; \
-    python -c "import metrolla_auth"
+    python -c "import metrolla_auth.change_control"
 
 COPY fleet_api fleet_api
-COPY metrolla_change_control metrolla_change_control
 COPY wsgi.py .
 
 ENV FLEET_API_CONFIG=/etc/fleet-api/fleet-api.yaml \
