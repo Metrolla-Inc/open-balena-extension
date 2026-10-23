@@ -40,6 +40,17 @@ All notable changes to this project are documented here. The format follows
     release and health).
   - The image build checks `import metrolla_auth.change_control`; the Ansible role vendors
     metrolla-auth from `feat/relay-changes` (`fleet_api_metrolla_auth_ref`).
+  - **Authority comes from approvals, not the author.** Each fleet item maps to the permission a
+    direct write needs (`release.build` → fleet:release, `release.deploy` → fleet:deploy,
+    `env.patch` → fleet:env, `site.change` → change:author; `op.device.*` → fleet:device,
+    `op.server.*` → system:admin) and the plan records it (`plan.required_permissions`). An
+    approval counts toward an item only if the approver holds its permission (kept on the
+    approval as `permissions`); others are refused 403 `approver-lacks-permission`. An item whose
+    policy needs no approval needs the author's own permission (kept on the change set from
+    creation) or one qualifying approval, emergencies likewise, so a `change_pipeline` token can't
+    self-apply a deploy. `GET /fleet/v1/changes/{id}` shows `approval_status` and `waiting_for`.
+    New nullable columns `fleet_change_sets.author_permissions` and
+    `fleet_change_approvals.permissions`, added on start to existing databases.
 - **Image and compose project:** `components/fleet-api/Dockerfile` builds `metrolla-fleet-api:local`
   (Python 3.12, gunicorn with **one** worker and 8 threads because the change scheduler runs in the
   process, static docker CLI for server operations, healthcheck on `/fleet/v1/ping`).

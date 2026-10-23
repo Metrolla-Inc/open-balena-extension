@@ -161,7 +161,10 @@ static tokens (`Authorization: Bearer mtl_st_…` + `X-Metrolla-User`). Roles: `
 (fleet:view), `fleet_operator` (+ fleet:device), `fleet_release_manager` (+ fleet:release,
 fleet:deploy, fleet:env), `site_admin` (everything, including system:admin). Change sets use the
 `change:*` permissions (`change_pipeline` for CI, machine callers only: change:view/author/apply;
-`change_approver` for approvers: change:view/approve). Every write is audited (actor, kind,
+`change_approver` for approvers: change:view/approve). Authoring needs change:author only; an
+approval counts toward an item only if the approver also holds that item's permission (see
+[Who has authority](#who-has-authority-approvals-not-the-author)), so with one role per caller the
+approver of a deploy is a `site_admin`. Every write is audited (actor, kind,
 redacted body, outcome) and readable at `/fleet/v1/audit` (audit:view); env values are masked in
 audit rows.
 
@@ -332,10 +335,16 @@ POST /fleet/v1/changes            (Idempotency-Key: mtl-… optional)
   {"id": "fchg_…", "title": "…", "ticket": "…", "state": "planned", "fleets": ["admin/bellagio-retail"],
    "plan_hash": "sha256:…", "author": "…", "emergency": false, "scheduled_for": null, "window_end": null,
    "error": null, "created_at": "…", "updated_at": "…",
-   "items": [...], "plan": {"items": [...], "policy": {...}, "required_approvals": 1, "secret_names": [...]},
+   "items": [...], "plan": {"items": [...], "policy": {...}, "required_approvals": 1, "secret_names": [...],
+                            "required_permissions": [{"class": "release.deploy", "permission": "fleet:deploy",
+                                                      "approvals": 1}]},
    "policy": {...}, "reason": null, "window": "next", "not_before": null, "signature_kid": "ci-2026",
    "applied_at": null, "finished_at": null, "verify_result": null,
-   "approvals": [{"approver": "…", "plan_hash": "…", "comment": "…", "approved_at": "…", "counts": true}],
+   "approvals": [{"approver": "…", "plan_hash": "…", "permissions": ["fleet:deploy"], "comment": "…",
+                  "approved_at": "…", "counts": true}],
+   "approval_status": [{"class": "release.deploy", "permission": "fleet:deploy", "approvals": 1,
+                        "approvers": [], "waiting": 1}],
+   "waiting_for": [{"class": "release.deploy", "permission": "fleet:deploy", "waiting": 1}],
    "progress": {...}, "history": [...]}
 
 GET  /fleet/v1/changes?state=scheduled&limit=20   → 200 {"changes": [<brief change>]}
@@ -446,9 +455,11 @@ anything changed).
    against `trusted_keys` (403 on either). Items are validated (422 with JSON pointers), the base
    state is read, the plan and plan hash are computed, and the change is `planned` (or stays
    `draft`).
-2. **Approve** (`change:approve`): each approver sends `POST …/approve {plan_hash}` with the hash
-   they reviewed. When the required count of distinct approvers (not the author) is met on the
-   current hash, the change is `approved`. With zero required approvals this happens at once.
+2. **Approve** (`change:approve` plus the permission of an item still needing approval): each
+   approver sends `POST …/approve {plan_hash}` with the hash they reviewed. When every item's
+   resource class has its count of distinct qualifying approvers (not the author) on the current
+   hash, the change is `approved`; `waiting_for` lists what is still missing. With zero required
+   approvals (and an author holding the items' permissions) this happens at once.
 3. **Schedule:** the scheduler (every `rollout.tick_s`) decides apply / wait / expire. Outside a
    window, or behind another change on the same fleet, it is `scheduled` with `scheduled_for`
    and `window_end`. `POST …/apply` applies now if a window is open (or it is an approved
@@ -469,10 +480,10 @@ anything changed).
   of every scope an env.patch touches, and the release a deploy names. If any of it moves before
   applying, the change goes `stale` and `POST …/plan` makes a new plan (new hash).
 - **Approvals** bind to the hash (`POST …/approve {plan_hash}`); only approvals of the current
-  hash count. The author can't approve. Required approvals: the strictest policy across the
-  items' resource classes (`release.build`, `release.deploy`, `env`, `site.change`), or
-  `emergency.approvals` for an emergency. With sign-in off everyone is `anonymous`, so a policy
-  that needs approvals can't be met until sign-in is on.
+  hash count. The author can't approve. Each resource class's policy (or `emergency.approvals`
+  for an emergency) sets how many approvers it needs, counted as in
+  [Who has authority](#who-has-authority-approvals-not-the-author). With sign-in off
+  everyone is `anonymous`, so a policy that needs approvals can't be met until sign-in is on.
 - **Windows and freezes** come from `change_control` in `fleet-api.yaml` (re-read when the file
   changes): RRULE windows in `change_control.timezone`, freezes that beat windows. Policies with
   `window: false` apply at once, even inside a freeze; emergencies skip windows and freezes.
@@ -505,6 +516,38 @@ freezes, state machine, approval rules, webhook HMAC) is `metrolla_auth.change_c
 with EdgeAPI's change control (EdgeAPI `packages/metrolla_auth/src/metrolla_auth/change_control/`,
 PR #105; its tests are EdgeAPI's `tests/test_change_control_engine.py`). The fleet-specific
 half (base state, items, rollouts) is `fleet_api/changes.py`.
+
+### Who has authority: approvals, not the author
+
+The same rule as EdgeAPI's change sets, from the shared engine (`cc.requirement`,
+`check_approver`, `approval_status`). Authoring needs `change:author` only, so a CI token with
+`change_pipeline` can propose a deploy without holding `fleet:deploy`; the authority comes from
+the approvals:
+
+| Item (`op`) | Resource class | Permission its approvers need |
+|---|---|---|
+| `release.build` | `release.build` | fleet:release |
+| `release.deploy` | `release.deploy` | fleet:deploy |
+| `env.patch` | `env` | fleet:env |
+| `site.change` | `site.change` | change:author (each device's EdgeAPI then applies its own approval rules to the site change) |
+| device operations | `op.device.<type>` | fleet:device (the class direct device operations are gated under; not a change-set item yet) |
+| server operations | `op.server.<type>` | system:admin (likewise) |
+
+- The plan records `plan.required_permissions: [{class, permission, approvals}]`, one per class
+  the items touch.
+- An approval counts toward a class only if the approver held its permission when approving; the
+  approval keeps which (`approvals[].permissions`). An approver holding none of the permissions
+  that need approval is refused: 403 `approver-lacks-permission`.
+- A class whose policy needs **no** approval takes the author's own permission (as held at
+  creation, kept on the change set whoever re-plans) as its authority. An author without it
+  needs **one** qualifying approval, so a pipeline can't self-apply a deploy with zero
+  approvals. Same for emergencies with `emergency.approvals: 0`.
+- `GET /changes/{id}` shows `approval_status` (per class: `approvers`, `waiting`) and
+  `waiting_for: [{class, permission, waiting}]`, what the change still needs.
+
+Direct writes (`PUT …/target-release`, `PATCH …/env`, device and server operations) keep checking
+the caller's own permission. With sign-in off (anonymous `site_admin`) authors hold everything,
+so nothing changes there.
 
 ### Rollouts
 
@@ -652,9 +695,10 @@ real openBalena.
 | 409 `rollout-in-progress` / `fleet-busy` | A change is applying on the fleet. Wait, or cancel/roll it back. |
 | 409 `stale` on approve or apply | The fleet's target, env or named release moved since planning: `POST /changes/{id}/plan` and approve the new hash. |
 | 409 `plan-hash-mismatch` / 403 `author-cannot-approve` | Approve with the current `plan_hash`; a different user from the author must approve. |
+| 403 `approver-lacks-permission` | The approver has change:approve but not the permission of any item still needing approval (`waiting_for` names it): approve as a user holding it. |
 | 403 `signature-required` / `unknown-key` / `signature-mismatch` | `require_signature` is on, the `kid` isn't in `trusted_keys`, or the body changed after signing (canonical JSON without `signature`). |
 | 403 `caller-not-allowed` | `allowed_callers` excludes this caller kind (e.g. a browser session when only `machine` is allowed). |
-| Change sits in `planned` | Not enough approvals. With sign-in off every caller is `anonymous`, so a policy that needs approvals can't be met. |
+| Change sits in `planned` | Not enough qualifying approvals: `waiting_for` names the class and permission still missing. A pipeline-authored change needs one even where the policy says 0. With sign-in off every caller is `anonymous`, so a policy that needs approvals can't be met. |
 | Change sits in `scheduled`, then `expired` | No window open: `GET /change-control` shows `open_now`, `frozen` and `next_window`. |
 | Image `failed` "no longer knows this build" | The imagemaker restarted (it keeps jobs in memory). Rebuild. |
 | Image build refused / imagemaker unreachable | `imagemaker_host` not set to the bridge gateway, or `imagemaker_token` doesn't match `IMAGEMAKER_TOKEN`. |
