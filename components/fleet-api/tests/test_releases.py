@@ -64,9 +64,9 @@ def test_pin_fleet_and_device(world):
 
     d = world.device('quiet-river')
     r = world.client.put('/fleet/v1/devices/%s/target-release' % d['uuid'][:10], json={'release': world.r1['id']})
-    assert r.status_code == 200 and d['is_pinned_on__release'] == world.r1['id']
+    assert r.status_code == 200 and d['should_be_running__release'] == world.r1['id']
     r = world.client.put('/fleet/v1/devices/%s/target-release' % d['uuid'], json={'release': None})
-    assert r.status_code == 200 and d['is_pinned_on__release'] is None
+    assert r.status_code == 200 and d['should_be_running__release'] is None
 
     draft = world.balena.release(world.fleet, final=False)
     assert world.client.put('/fleet/v1/fleets/%s/target-release' % FLEET_SEG,

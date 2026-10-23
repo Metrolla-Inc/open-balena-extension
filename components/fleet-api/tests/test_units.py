@@ -120,3 +120,33 @@ def test_permission_columns_are_added_to_tables_made_before_them(tmp_path):
     insp = inspect(engine)
     assert 'author_permissions' in {c['name'] for c in insp.get_columns('fleet_change_sets')}
     assert 'permissions' in {c['name'] for c in insp.get_columns('fleet_change_approvals')}
+
+
+def test_pine_queries_keep_odata_separators_literal():
+    """openBalena's pine answers 400 "Malformed url" for $select=id%2Cslug (found on the lab server)."""
+    from fleet_api.balena import BalenaClient
+
+    class Capture:
+        def __init__(self):
+            self.urls = []
+
+        def request(self, method, url, **kw):
+            self.urls.append(url)
+
+            class R:
+                status_code, content, text = 200, b'{"d": []}', '{"d": []}'
+
+                def json(self):
+                    return {'d': []}
+            return R()
+
+    http = Capture()
+    c = BalenaClient('https://api.example', 'k', session=http)
+    c.fleet('admin/flood2')
+    c.get('release', filter='belongs_to__application eq 1', select='id,commit',
+          expand='release_image($expand=image($select=id,status;$expand=x))', orderby='created_at desc', top=2)
+    assert http.urls[0] == ("https://api.example/v6/application?$filter=slug%20eq%20'admin/flood2'"
+                            "&$select=id,app_name,slug,should_be_running__release,should_track_latest_release")
+    assert http.urls[1] == ('https://api.example/v6/release?$filter=belongs_to__application%20eq%201&$select=id,commit'
+                            '&$expand=release_image($expand=image($select=id,status;$expand=x))'
+                            '&$orderby=created_at%20desc&$top=2')
