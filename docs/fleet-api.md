@@ -170,7 +170,7 @@ audit rows.
 
 ## Endpoints
 
-All under `/fleet/v1`. Fleet slugs go in one path segment (`admin%2Fbellagio-retail`); a bare
+All under `/fleet/v1`. Fleet slugs go in one path segment (`admin%2Fexample-retail`); a bare
 fleet name or numeric id also works. "Gated" means the route is refused in `change_control.mode:
 gated` unless that class's policy needs no approval and no window (see
 [Gated mode](#fleet-change-sets)).
@@ -232,21 +232,21 @@ Request and response bodies, as the code builds them. Times are ISO 8601 UTC; `�
 
 ```http
 GET /fleet/v1/fleets
-→ 200 {"fleets": [{"id": 3, "slug": "admin/bellagio-retail", "name": "bellagio-retail",
+→ 200 {"fleets": [{"id": 3, "slug": "admin/example-retail", "name": "example-retail",
         "target_release_id": 812, "target_release": "9f1c…", "tracks_latest": false,
         "device_count": 6, "online_count": 5}]}
 
-GET /fleet/v1/fleets/admin%2Fbellagio-retail/releases
-→ 200 {"fleet": "admin/bellagio-retail", "releases": [
+GET /fleet/v1/fleets/admin%2Fexample-retail/releases
+→ 200 {"fleet": "admin/example-retail", "releases": [
         {"kind": "build", "id": "bld_…", "status": "success", "release_id": 812, …},
         {"kind": "release", "id": 812, "commit": "9f1c…", "status": "success", "finalized": true,
          "version": "0.0.0+rev3", "created_at": "…", "finished_at": "…", "is_target": true,
          "build_id": "bld_…",
          "images": [{"id": 1, "service": "edgeapi", "status": "success", "size": 1234, "content_hash": "sha256:…"}]}]}
 
-POST /fleet/v1/fleets/admin%2Fbellagio-retail/releases
-{"git": {"repo": "balena-fleets-metrollaprod", "ref": "v2.2.0", "path": "bellagio-retail"}}
-→ 202 {"kind": "build", "id": "bld_…", "build_id": "bld_…", "fleet": "admin/bellagio-retail",
+POST /fleet/v1/fleets/admin%2Fexample-retail/releases
+{"git": {"repo": "balena-fleets-metrollaprod", "ref": "v2.2.0", "path": "example-retail"}}
+→ 202 {"kind": "build", "id": "bld_…", "build_id": "bld_…", "fleet": "admin/example-retail",
         "git": {…}, "status": "queued", "release_id": null, "commit": null, "source_commit": null,
         "finalized": false, "error": null, "created_by": "…", "change_id": null,
         "created_at": "…", "started_at": null, "finished_at": null,
@@ -313,7 +313,7 @@ every response and audit row.
 
 ```http
 POST /fleet/v1/images
-{"fleet": "admin/bellagio-retail", "device_type": "jetson-orin-nx-xavier-nx-devkit", "os_version": "6.0.13",
+{"fleet": "admin/example-retail", "device_type": "jetson-orin-nx-xavier-nx-devkit", "os_version": "6.0.13",
  "config": {"network": "wifi", "connectivity": "internet", "wifi_ssid": "site", "wifi_key": "…"}}
 → 202 {"id": "img_…", "fleet": "…", "status": "building", "params": {"device_type": "…", "os_version": "…",
         "network": "wifi", "connectivity": "internet", "wifi_ssid": "site"}, "name": null, "error": null,
@@ -332,7 +332,7 @@ lists. `network` is `wifi` or `ethernet` (default), `connectivity` is `internet`
 ```http
 POST /fleet/v1/changes            (Idempotency-Key: mtl-… optional)
 → 201 created, or 200 with the existing change for a repeated Idempotency-Key
-  {"id": "fchg_…", "title": "…", "ticket": "…", "state": "planned", "fleets": ["admin/bellagio-retail"],
+  {"id": "fchg_…", "title": "…", "ticket": "…", "state": "planned", "fleets": ["admin/example-retail"],
    "plan_hash": "sha256:…", "author": "…", "emergency": false, "scheduled_for": null, "window_end": null,
    "error": null, "created_at": "…", "updated_at": "…",
    "items": [...], "plan": {"items": [...], "policy": {...}, "required_approvals": 1, "secret_names": [...],
@@ -427,12 +427,12 @@ on the host and talking to `builder:80` and `api.<DNS_TLD>` inside the openBalen
 POST /fleet/v1/changes
 Idempotency-Key: mtl-…
 
-{ "title": "datablade v2.2.0 to bellagio-retail", "ticket": "CHG0012400",
+{ "title": "datablade v2.2.0 to example-retail", "ticket": "CHG0012400",
   "items": [
-    { "op": "release.build", "fleet": "admin/bellagio-retail",
-      "git": { "repo": "balena-fleets-metrollaprod", "ref": "v2.2.0", "path": "bellagio-retail" } },
-    { "op": "env.patch", "fleet": "admin/bellagio-retail", "set": { "METROLLA_AUTH_ENABLED": "true" } },
-    { "op": "release.deploy", "fleet": "admin/bellagio-retail", "release": "@built",
+    { "op": "release.build", "fleet": "admin/example-retail",
+      "git": { "repo": "balena-fleets-metrollaprod", "ref": "v2.2.0", "path": "example-retail" } },
+    { "op": "env.patch", "fleet": "admin/example-retail", "set": { "METROLLA_AUTH_ENABLED": "true" } },
+    { "op": "release.deploy", "fleet": "admin/example-retail", "release": "@built",
       "waves": [ { "devices": ["wandering-mountain"] }, { "percent": 25 }, { "percent": 100 } ],
       "soak_min": 30, "halt_if": { "health": "worse", "offline_devices": 1 } } ],
   "window": "next",

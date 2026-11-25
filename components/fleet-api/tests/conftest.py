@@ -19,8 +19,8 @@ from fleet_api.settings import SettingsProvider  # noqa: E402
 
 logging.getLogger('werkzeug').setLevel(logging.WARNING)
 
-FLEET = 'admin/bellagio-retail'
-FLEET_SEG = 'admin%2Fbellagio-retail'
+FLEET = 'admin/example-retail'
+FLEET_SEG = 'admin%2Fexample-retail'
 
 
 def _git(cwd, *args):
@@ -30,15 +30,15 @@ def _git(cwd, *args):
 
 @pytest.fixture(scope='session')
 def repos(tmp_path_factory):
-    """A local 'remote' git repo: balena-fleets with bellagio-retail/ tagged v2.2.0."""
+    """A local 'remote' git repo: balena-fleets with example-retail/ tagged v2.2.0."""
     base = tmp_path_factory.mktemp('repos')
     repo = base / 'balena-fleets'
-    (repo / 'bellagio-retail').mkdir(parents=True)
-    (repo / 'bellagio-retail' / 'docker-compose.yml').write_text('services:\n  edgeapi:\n    build: ./edgeapi\n')
-    (repo / 'bellagio-retail' / 'edgeapi').mkdir()
-    (repo / 'bellagio-retail' / 'edgeapi' / 'Dockerfile').write_text('FROM alpine\n')
-    (repo / 'bellagio-retail' / '.dockerignore').write_text('notes.txt\n')
-    (repo / 'bellagio-retail' / 'notes.txt').write_text('not for the builder\n')
+    (repo / 'example-retail').mkdir(parents=True)
+    (repo / 'example-retail' / 'docker-compose.yml').write_text('services:\n  edgeapi:\n    build: ./edgeapi\n')
+    (repo / 'example-retail' / 'edgeapi').mkdir()
+    (repo / 'example-retail' / 'edgeapi' / 'Dockerfile').write_text('FROM alpine\n')
+    (repo / 'example-retail' / '.dockerignore').write_text('notes.txt\n')
+    (repo / 'example-retail' / 'notes.txt').write_text('not for the builder\n')
     _git(repo, 'init', '-q', '-b', 'main')
     _git(repo, 'add', '.')
     _git(repo, 'commit', '-q', '-m', 'init')

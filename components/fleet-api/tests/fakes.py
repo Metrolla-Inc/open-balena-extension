@@ -475,7 +475,7 @@ class FakeImagemaker:
         def fleets():
             if not authed():
                 return Response('unauthorized', status=401)
-            return json.dumps([{'slug': 'admin/bellagio-retail', 'deviceType': 'jetson-agx-orin-devkit'}])
+            return json.dumps([{'slug': 'admin/example-retail', 'deviceType': 'jetson-agx-orin-devkit'}])
 
         @app.route('/api/versions')
         def versions():

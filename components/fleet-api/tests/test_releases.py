@@ -2,7 +2,7 @@
 from conftest import FLEET, FLEET_SEG
 
 
-def _build(world, ref='v2.2.0', path='bellagio-retail', repo='balena-fleets'):
+def _build(world, ref='v2.2.0', path='example-retail', repo='balena-fleets'):
     r = world.client.post('/fleet/v1/fleets/%s/releases' % FLEET_SEG,
                           json={'git': {'repo': repo, 'ref': ref, 'path': path}})
     return r
@@ -80,7 +80,7 @@ def test_fleets_and_devices_views(world):
     world.devices[3]['is_online'] = False
     world.edge('quiet-river').health = 'degraded'
     fleets = world.client.get('/fleet/v1/fleets').json['fleets']
-    assert fleets == [{'id': world.fleet['id'], 'slug': FLEET, 'name': 'bellagio-retail',
+    assert fleets == [{'id': world.fleet['id'], 'slug': FLEET, 'name': 'example-retail',
                        'target_release_id': world.r1['id'], 'target_release': world.r1['commit'],
                        'tracks_latest': False, 'device_count': 4, 'online_count': 3}]
     devices = {d['name']: d for d in world.client.get('/fleet/v1/fleets/%s/devices' % FLEET_SEG).json['devices']}
