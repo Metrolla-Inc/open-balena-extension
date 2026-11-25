@@ -5,11 +5,11 @@ DEPLOY = {'op': 'release.deploy', 'fleet': FLEET, 'release': '@built',
           'waves': [{'devices': ['wandering-mountain']}, {'percent': 50}, {'percent': 100}],
           'soak_min': 30, 'halt_if': {'health': 'worse', 'offline_devices': 1}}
 BUILD = {'op': 'release.build', 'fleet': FLEET,
-         'git': {'repo': 'balena-fleets', 'ref': 'v2.2.0', 'path': 'bellagio-retail'}}
+         'git': {'repo': 'balena-fleets', 'ref': 'v2.2.0', 'path': 'example-retail'}}
 
 
 def _post(world, items, **extra):
-    body = dict({'title': 'datablade v2.2.0 to bellagio-retail', 'ticket': 'CHG0012400', 'items': items,
+    body = dict({'title': 'datablade v2.2.0 to example-retail', 'ticket': 'CHG0012400', 'items': items,
                  'window': 'next'}, **extra)
     return world.client.post('/fleet/v1/changes', json=body, headers={'X-Metrolla-User': 'release-pipeline'})
 
@@ -110,7 +110,7 @@ def test_deploy_existing_release_and_one_rollout_per_fleet(world):
     assert first['state'] == 'applying'
     second = _post(world, [{'op': 'env.patch', 'fleet': FLEET, 'set': {'LOG_LEVEL': 'debug'}}]).json
     assert second['state'] == 'approved', 'queued behind the running rollout'
-    r = world.client.put('/fleet/v1/fleets/admin%2Fbellagio-retail/target-release', json={'release': r2['id']})
+    r = world.client.put('/fleet/v1/fleets/admin%2Fexample-retail/target-release', json={'release': r2['id']})
     assert r.status_code == 409 and r.json['type'].endswith('rollout-in-progress')
     world.tick()
     world.tick()
