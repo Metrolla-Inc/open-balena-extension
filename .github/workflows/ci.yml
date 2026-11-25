@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: No customer-name list is tracked (customer-name checks run on the maintainers' machines)
+        run: python3 .ci/test_no_name_list.py -v
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
